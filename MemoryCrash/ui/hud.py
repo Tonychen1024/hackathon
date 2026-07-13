@@ -4,7 +4,6 @@
 class HUD:
     def draw(self, screen, fonts, player, runtime_state) -> None:
         lines = [
-            f"HP: {int(player.hp)}",
             f"DMG: {player.damage:.1f}",
             f"SPD: {player.speed:.1f}",
             f"$ {player.money:.0f}",

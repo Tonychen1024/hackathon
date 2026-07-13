@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 import pygame
 
-from config import SCREEN_HEIGHT, SCREEN_WIDTH, TITLE
+from config import PLAYER_START_MONEY, SCREEN_HEIGHT, SCREEN_WIDTH, TITLE
 from levels.level_manager import LevelManager
 from market.market import Market
 from player.player import Player
@@ -161,6 +161,7 @@ class CombatScene(Scene):
             pygame.time.get_ticks() / 1000.0,
             effects["fear_enemy_speed"],
             effects["fear_enemy_damage"],
+            effects["fear_enemy_health"],
             effects["fear_enemy_size"],
         )
         level.collect_fragments(context.player)
@@ -173,6 +174,7 @@ class CombatScene(Scene):
         ):
             level.news_triggered = True
             context.market.trigger_ai_jobs_news()
+            level.scatter_fear_fragments(context.player)
             self.manager.last_combat_scene = self.combat_scene_name
             self.manager.change_scene("NEWS")
             return
@@ -271,6 +273,8 @@ class MarketScene(Scene):
         fear_line = f"{marker} Fear: Price {fear['price']:,.2f} | Owned {fear_owned}"
         surface.blit(fonts["body"].render(fear_line, True, color), (40, 390))
 
+        draw_price_chart(surface, context, pygame.Rect(720, 150, 510, 430))
+
         guide = fonts["small"].render("UP/DOWN 選擇 | B 買入 | S 賣出 1 個碎片 | ESC 返回戰鬥", True, (200, 200, 200))
         surface.blit(guide, (40, 660))
 
@@ -290,7 +294,7 @@ class NewsScene(Scene):
         surface.fill((15, 12, 24))
         title = fonts["title"].render("BREAKING NEWS", True, (255, 100, 100))
         headline = fonts["body"].render("AI is about to explode and replace 80% of human jobs", True, (255, 235, 170))
-        result = fonts["body"].render("FEAR x10 and becomes highly volatile", True, (220, 220, 255))
+        result = fonts["body"].render("Fear fragments are spreading. Fear price begins a sustained rise.", True, (220, 220, 255))
         tip = fonts["small"].render("Press ENTER, SPACE, or ESC to resume combat", True, (200, 200, 200))
         surface.blit(title, (SCREEN_WIDTH // 2 - title.get_width() // 2, 220))
         surface.blit(headline, (SCREEN_WIDTH // 2 - headline.get_width() // 2, 310))
@@ -304,7 +308,10 @@ class GameOverScene(Scene):
     def handle_event(self, event) -> None:
         if event.type == pygame.KEYDOWN and event.key == pygame.K_RETURN:
             player = self.manager.context.player
-            player.hp = 100
+            player.money = PLAYER_START_MONEY
+            player.shield = 0
+            player.shield_max = 0
+            player.fragments = {"Hope": 0, "Dream": 0, "Fear": 0}
             self.manager.change_scene("MENU")
 
     def draw(self, surface) -> None:
@@ -322,7 +329,6 @@ def draw_hud(surface, context: GameContext) -> None:
     level = context.level_manager.current_level
 
     left_lines = [
-        f"HP: {int(player.hp)}",
         f"Money: {int(player.money)}",
         f"Level: {level.index}",
         f"hope_owned: {player.fragments['Hope']}",
@@ -359,3 +365,53 @@ def draw_player_effects(surface, player: Player) -> None:
         width = max(1, min(8, int(1 + player.shield_max / 20)))
         color = (255, 220, 40) if ratio > 0.2 else (140, 115, 30)
         pygame.draw.circle(surface, color, (int(player.x), int(player.y)), player.radius + 6, width)
+
+
+def draw_price_chart(surface, context: GameContext, rect: pygame.Rect) -> None:
+    """Plot the last five seconds of live fragment prices in the market."""
+    pygame.draw.rect(surface, (18, 24, 40), rect)
+    pygame.draw.rect(surface, (95, 120, 175), rect, 2)
+    title = context.fonts["body"].render("PRICE HISTORY (last 5 seconds)", True, (220, 230, 255))
+    surface.blit(title, (rect.x + 12, rect.y + 10))
+
+    plot = pygame.Rect(rect.x + 52, rect.y + 60, rect.width - 70, rect.height - 100)
+    pygame.draw.rect(surface, (30, 40, 62), plot)
+    for offset in range(1, 5):
+        x = plot.x + plot.width * offset // 5
+        pygame.draw.line(surface, (55, 68, 95), (x, plot.y), (x, plot.bottom), 1)
+    for offset in range(1, 4):
+        y = plot.y + plot.height * offset // 4
+        pygame.draw.line(surface, (55, 68, 95), (plot.x, y), (plot.right, y), 1)
+
+    series = {name: context.market.recent_history(name) for name in ("Hope", "Dream", "Fear")}
+    values = [price for points in series.values() for _, price in points]
+    low, high = (min(values), max(values)) if values else (0.0, 1.0)
+    if high - low < 1:
+        high = low + 1
+    padding = (high - low) * 0.12
+    low -= padding
+    high += padding
+    start = context.market.elapsed - 5.0
+    colors = {"Hope": (110, 255, 165), "Dream": (120, 175, 255), "Fear": (255, 75, 95)}
+
+    for index, (name, points) in enumerate(series.items()):
+        color = colors[name]
+        legend = context.fonts["small"].render(name, True, color)
+        surface.blit(legend, (plot.x + index * 110, rect.bottom - 30))
+        coords = [
+            (
+                int(plot.x + max(0.0, min(1.0, (timestamp - start) / 5.0)) * plot.width),
+                int(plot.bottom - (price - low) / (high - low) * plot.height),
+            )
+            for timestamp, price in points
+        ]
+        if len(coords) >= 2:
+            pygame.draw.aalines(surface, color, False, coords)
+            pygame.draw.lines(surface, color, False, coords, 2)
+        elif coords:
+            pygame.draw.circle(surface, color, coords[0], 4)
+
+    top_label = context.fonts["small"].render(f"{high:,.0f}", True, (175, 185, 210))
+    bottom_label = context.fonts["small"].render(f"{low:,.0f}", True, (175, 185, 210))
+    surface.blit(top_label, (rect.x + 4, plot.y))
+    surface.blit(bottom_label, (rect.x + 4, plot.bottom - bottom_label.get_height()))

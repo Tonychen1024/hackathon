@@ -12,21 +12,58 @@ class Market:
             "Dream": {"price": 1000.0},
             "Fear": {"price": 1000.0},
         }
-        self._price_timer = 0.0
+        self._chart_timer = 0.0
+        self._fear_volatility_timer = 0.0
+        self.elapsed = 0.0
         self.fear_shocked = False
+        self.history: dict[str, list[tuple[float, float]]] = {
+            name: [(0.0, data["price"])] for name, data in self.stocks.items()
+        }
 
     def update(self, dt: float) -> None:
-        self._price_timer += dt
-        while self._price_timer >= 1.0:
-            self._price_timer -= 1.0
+        self.elapsed += dt
+        self._chart_timer += dt
+        while self._chart_timer >= 0.1 - 1e-9:
+            self._chart_timer -= 0.1
+            if abs(self._chart_timer) < 1e-9:
+                self._chart_timer = 0.0
+            tick_time = self.elapsed - self._chart_timer
+
+            for name in ("Hope", "Dream"):
+                data = self.stocks[name]
+                # Ten small steps create the former +/-3% per-second feel,
+                # while making the graph update smoothly every 0.1 seconds.
+                data["price"] = round(max(1.0, data["price"] * random.choice((0.997, 1.003))), 2)
+
+            fear = self.stocks["Fear"]
+            if not self.fear_shocked:
+                fear["price"] = round(max(1.0, fear["price"] * random.choice((0.997, 1.003))), 2)
+            elif fear["price"] < 30000:
+                # Sustained, visible rise until Fear reaches the cap threshold.
+                fear["price"] = round(fear["price"] * random.uniform(1.007, 1.012), 2)
+            else:
+                # Once Fear reaches $30,000, it becomes a once-per-second
+                # high-volatility asset instead of rising forever.
+                self._fear_volatility_timer += 0.1
+                if self._fear_volatility_timer >= 1.0 - 1e-9:
+                    self._fear_volatility_timer -= 1.0
+                    if abs(self._fear_volatility_timer) < 1e-9:
+                        self._fear_volatility_timer = 0.0
+                    fear["price"] = round(fear["price"] * random.choice((0.90, 1.10)), 2)
+
             for name, data in self.stocks.items():
-                change = 0.10 if name == "Fear" and self.fear_shocked else 0.03
-                data["price"] = round(max(1.0, data["price"] * random.choice((1 - change, 1 + change))), 2)
+                self.history[name].append((tick_time, data["price"]))
+
+        cutoff = self.elapsed - 5.0
+        for name in self.history:
+            self.history[name] = [point for point in self.history[name] if point[0] >= cutoff]
 
     def trigger_ai_jobs_news(self) -> None:
-        """Apply the Level 1 news shock and make Fear permanently volatile."""
-        self.stocks["Fear"]["price"] = round(self.stocks["Fear"]["price"] * 10, 2)
+        """Start Fear's sustained upward trend after the Level 1 news."""
         self.fear_shocked = True
+
+    def recent_history(self, stock_name: str, seconds: float = 5.0) -> list[tuple[float, float]]:
+        return [point for point in self.history[stock_name] if point[0] >= self.elapsed - seconds]
 
     def buy_fragment(self, player, stock_name: str, amount: int = 1) -> bool:
         if stock_name not in self.stocks or amount <= 0:
@@ -70,7 +107,8 @@ class Market:
             "dream_shield": min(120.0, dream * 15.0),
             "hope_speed_bonus": min(180.0, hope * 18.0),
             "dream_fire_scale": max(0.35, 1.0 - (0.06 * dream)),
-            "fear_enemy_speed": min(2.5, 1.0 + (0.08 * fear)),
-            "fear_enemy_damage": min(3.0, 1.0 + (0.12 * fear)),
-            "fear_enemy_size": min(2.2, 1.0 + (0.07 * fear)),
+            "fear_enemy_speed": min(2.0, 1.0 + (0.05 * fear)),
+            "fear_enemy_damage": min(7.0, 1.0 + (0.50 * fear)),
+            "fear_enemy_health": min(6.0, 1.0 + (0.40 * fear)),
+            "fear_enemy_size": min(3.4, 1.0 + (0.18 * fear)),
         }

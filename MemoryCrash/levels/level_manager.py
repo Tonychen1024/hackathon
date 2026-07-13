@@ -78,9 +78,9 @@ class Level:
                 )
             )
 
-    def update(self, dt: float, player, now: float, enemy_speed_multiplier: float, enemy_damage_multiplier: float, enemy_size_multiplier: float) -> None:
+    def update(self, dt: float, player, now: float, enemy_speed_multiplier: float, enemy_damage_multiplier: float, enemy_health_multiplier: float, enemy_size_multiplier: float) -> None:
         for enemy in self.enemies:
-            enemy.set_fear_strength(enemy_size_multiplier)
+            enemy.set_fear_strength(enemy_size_multiplier, enemy_health_multiplier)
             enemy.move(dt, player.x, player.y, enemy_speed_multiplier)
             if math.hypot(enemy.x - player.x, enemy.y - player.y) <= enemy.radius + player.radius:
                 enemy.attack(player, now, enemy_damage_multiplier)
@@ -115,6 +115,15 @@ class Level:
                 remain.append(fragment)
         self.fragments = remain
 
+    def scatter_fear_fragments(self, player, amount: int = 36) -> None:
+        """Flood the nearby map with Fear after the breaking-news event."""
+        for _ in range(amount):
+            angle = random.uniform(0, math.tau)
+            distance = random.uniform(30, 250)
+            x = max(16, min(1264, player.x + math.cos(angle) * distance))
+            y = max(16, min(704, player.y + math.sin(angle) * distance))
+            self.fragments.append(MemoryFragment(x=x, y=y, kind="Fear", size=12))
+
     def check_complete(self) -> bool:
         if self.is_boss:
             self.cleared = len(self.enemies) == 0
@@ -135,6 +144,14 @@ class Level:
         for line_y in range(80, 720, 80):
             pygame_color = (50, 60, 90) if self.index < 4 else (80, 40, 40)
             pygame.draw.line(surface, pygame_color, (0, line_y), (1280, line_y), 1)
+
+        glow_layer = pygame.Surface(surface.get_size(), pygame.SRCALPHA)
+        for enemy in self.enemies:
+            if enemy.radius > enemy.base_radius:
+                glow_radius = int(enemy.radius * 1.65)
+                pygame.draw.circle(glow_layer, (255, 20, 55, 85), (int(enemy.x), int(enemy.y)), glow_radius)
+                pygame.draw.circle(glow_layer, (255, 90, 35, 120), (int(enemy.x), int(enemy.y)), int(enemy.radius * 1.28))
+        surface.blit(glow_layer, (0, 0))
 
         for enemy in self.enemies:
             pygame.draw.circle(surface, (230, 60, 60), (int(enemy.x), int(enemy.y)), enemy.radius)
