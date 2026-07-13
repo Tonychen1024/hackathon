@@ -107,8 +107,10 @@ class Market:
             "dream_shield": min(120.0, dream * 15.0),
             "hope_speed_bonus": min(180.0, hope * 18.0),
             "dream_fire_scale": max(0.35, 1.0 - (0.06 * dream)),
-            "fear_enemy_speed": min(2.0, 1.0 + (0.05 * fear)),
-            "fear_enemy_damage": min(7.0, 1.0 + (0.50 * fear)),
-            "fear_enemy_health": min(6.0, 1.0 + (0.40 * fear)),
-            "fear_enemy_size": min(3.4, 1.0 + (0.18 * fear)),
+            # Fear has no ceiling: every additional fragment makes enemies
+            # faster, tougher, more damaging, and visibly larger.
+            "fear_enemy_speed": 1.0 + (0.12 * fear),
+            "fear_enemy_damage": 1.0 + (0.50 * fear),
+            "fear_enemy_health": 1.0 + (0.40 * fear),
+            "fear_enemy_size": 1.0 + (0.18 * fear),
         }

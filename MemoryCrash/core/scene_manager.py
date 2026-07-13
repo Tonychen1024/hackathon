@@ -170,7 +170,7 @@ class CombatScene(Scene):
         if (
             level.index == 1
             and not level.news_triggered
-            and level.collected_fragments >= 8
+            and level.elapsed >= 20.0
         ):
             level.news_triggered = True
             context.market.trigger_ai_jobs_news()

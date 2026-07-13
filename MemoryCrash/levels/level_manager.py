@@ -33,6 +33,10 @@ class Level:
     cleared: bool = False
     news_triggered: bool = False
     collected_fragments: int = 0
+    elapsed: float = 0.0
+    enemy_hp_multiplier: float = 1.0
+    enemy_damage_bonus: float = 0.0
+    enemy_speed_bonus: float = 0.0
 
     def enter(self) -> None:
         self.enemies = []
@@ -41,6 +45,7 @@ class Level:
         self.cleared = False
         self.news_triggered = False
         self.collected_fragments = 0
+        self.elapsed = 0.0
         self.spawn_enemy()
 
     def exit(self) -> None:
@@ -68,9 +73,9 @@ class Level:
             self.enemies.append(
                 Enemy(
                     name="Memory Error",
-                    hp=20 + self.index * 4,
-                    damage=6 + self.index,
-                    speed=95 + self.index * 12,
+                    hp=(20 + self.index * 4) * self.enemy_hp_multiplier,
+                    damage=6 + self.index + self.enemy_damage_bonus,
+                    speed=95 + self.index * 12 + self.enemy_speed_bonus,
                     reward_item=random.choice(FRAGMENT_TYPES),
                     x=random.randint(40, 1240),
                     y=random.randint(40, 680),
@@ -79,6 +84,7 @@ class Level:
             )
 
     def update(self, dt: float, player, now: float, enemy_speed_multiplier: float, enemy_damage_multiplier: float, enemy_health_multiplier: float, enemy_size_multiplier: float) -> None:
+        self.elapsed += dt
         for enemy in self.enemies:
             enemy.set_fear_strength(enemy_size_multiplier, enemy_health_multiplier)
             enemy.move(dt, player.x, player.y, enemy_speed_multiplier)
@@ -189,7 +195,14 @@ class Level:
 class LevelManager:
     def __init__(self) -> None:
         self.levels = [
-            Level(1, "LEVEL 1 - Memory City", 20),
+            Level(
+                1,
+                "LEVEL 1 - Memory City",
+                36,
+                enemy_hp_multiplier=1.6,
+                enemy_damage_bonus=6,
+                enemy_speed_bonus=36,
+            ),
             Level(2, "LEVEL 2 - Childhood World", 30),
             Level(3, "LEVEL 3 - Dream Factory", 40),
             Level(4, "LEVEL 4 - Regret Land", 50),
