@@ -19,6 +19,7 @@ class MemoryFragment:
     y: float
     kind: str
     size: int = 10
+    is_covid: bool = False
 
 
 @dataclass
@@ -121,14 +122,14 @@ class Level:
                 remain.append(fragment)
         self.fragments = remain
 
-    def scatter_fear_fragments(self, player, amount: int = 36) -> None:
-        """Flood the nearby map with Fear after the breaking-news event."""
+    def scatter_fear_fragments(self, player, amount: int = 14) -> None:
+        """Scatter a smaller set of enlarged COVID-shaped Fear fragments."""
         for _ in range(amount):
             angle = random.uniform(0, math.tau)
             distance = random.uniform(30, 250)
             x = max(16, min(1264, player.x + math.cos(angle) * distance))
             y = max(16, min(704, player.y + math.sin(angle) * distance))
-            self.fragments.append(MemoryFragment(x=x, y=y, kind="Fear", size=12))
+            self.fragments.append(MemoryFragment(x=x, y=y, kind="Fear", size=20, is_covid=True))
 
     def check_complete(self) -> bool:
         if self.is_boss:
@@ -169,6 +170,25 @@ class Level:
         }
         for fragment in self.fragments:
             color = fragment_colors.get(fragment.kind, (255, 255, 255))
+            if fragment.is_covid:
+                center = (int(fragment.x), int(fragment.y))
+                radius = fragment.size
+                pygame.draw.circle(surface, (185, 45, 70), center, radius)
+                pygame.draw.circle(surface, (255, 125, 120), center, radius, 2)
+                for spike in range(12):
+                    angle = math.tau * spike / 12
+                    inner = (
+                        int(fragment.x + math.cos(angle) * radius),
+                        int(fragment.y + math.sin(angle) * radius),
+                    )
+                    outer = (
+                        int(fragment.x + math.cos(angle) * (radius + 7)),
+                        int(fragment.y + math.sin(angle) * (radius + 7)),
+                    )
+                    pygame.draw.line(surface, (255, 105, 100), inner, outer, 3)
+                    pygame.draw.circle(surface, (255, 145, 135), outer, 4)
+                pygame.draw.circle(surface, (115, 20, 45), center, max(3, radius // 3))
+                continue
             rect = pygame.Rect(
                 int(fragment.x - fragment.size // 2),
                 int(fragment.y - fragment.size // 2),

@@ -55,6 +55,19 @@ class Player:
         self.bullets.clear()
         self.trail.clear()
 
+    def reset_for_new_run(self) -> None:
+        """Restore all player-owned gameplay state before a fresh level run."""
+        self.hp = PLAYER_BASE_HP
+        self.speed = PLAYER_BASE_SPEED
+        self.money = PLAYER_START_MONEY
+        self.inventory.clear()
+        self.fragments = {"Hope": 0, "Dream": 0, "Fear": 0}
+        self.shield = 0.0
+        self.shield_max = 0.0
+        self.trail_intensity = 0.0
+        self.bullets.clear()
+        self.trail.clear()
+
     def apply_fragment_effects(self, dream: int, hope: int, dt: float) -> None:
         """Apply bounded Dream shield and Hope movement bonuses."""
         old_max = self.shield_max

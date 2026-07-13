@@ -62,6 +62,10 @@ class Market:
         """Start Fear's sustained upward trend after the Level 1 news."""
         self.fear_shocked = True
 
+    def reset(self) -> None:
+        """Restore opening prices, chart data, and event state for a new run."""
+        self.__init__()
+
     def recent_history(self, stock_name: str, seconds: float = 5.0) -> list[tuple[float, float]]:
         return [point for point in self.history[stock_name] if point[0] >= self.elapsed - seconds]
 

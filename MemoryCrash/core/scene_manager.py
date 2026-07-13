@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 import pygame
 
-from config import PLAYER_START_MONEY, SCREEN_HEIGHT, SCREEN_WIDTH, TITLE
+from config import SCREEN_HEIGHT, SCREEN_WIDTH, TITLE
 from levels.level_manager import LevelManager
 from market.market import Market
 from player.player import Player
@@ -88,6 +88,9 @@ class MenuScene(Scene):
         elif event.key == pygame.K_DOWN:
             self.selected = min(len(levels) - 1, self.selected + 1)
         elif event.key == pygame.K_RETURN:
+            context = self.manager.context
+            context.player.reset_for_new_run()
+            context.market.reset()
             self.manager.context.level_manager.set_level(self.selected)
             next_scene = "BOSS" if self.manager.context.level_manager.current_level.is_boss else "LEVEL"
             self.manager.change_scene(next_scene)
@@ -125,11 +128,14 @@ class CombatScene(Scene):
         context.player.reset_position(SCREEN_WIDTH / 2, SCREEN_HEIGHT / 2)
 
     def handle_event(self, event) -> None:
-        if event.type == pygame.KEYDOWN and event.key == pygame.K_TAB:
+        if event.type != pygame.KEYDOWN:
+            return
+        if event.key == pygame.K_TAB:
             self.manager.last_combat_scene = self.combat_scene_name
             self.manager.change_scene("MARKET")
-
-        if event.type == pygame.KEYDOWN and event.key == pygame.K_RETURN:
+        elif event.key == pygame.K_ESCAPE:
+            self.manager.change_scene("MENU")
+        elif event.key == pygame.K_RETURN:
             level_manager = self.manager.context.level_manager
             if level_manager.current_level.cleared:
                 if level_manager.move_next():
@@ -293,13 +299,15 @@ class NewsScene(Scene):
         fonts = context.fonts
         surface.fill((15, 12, 24))
         title = fonts["title"].render("BREAKING NEWS", True, (255, 100, 100))
-        headline = fonts["body"].render("AI is about to explode and replace 80% of human jobs", True, (255, 235, 170))
+        headline_1 = fonts["body"].render("The continued spread of COVID-19", True, (255, 235, 170))
+        headline_2 = fonts["body"].render("may lead to severe disaster in many region", True, (255, 235, 170))
         result = fonts["body"].render("Fear fragments are spreading. Fear price begins a sustained rise.", True, (220, 220, 255))
         tip = fonts["small"].render("Press ENTER, SPACE, or ESC to resume combat", True, (200, 200, 200))
         surface.blit(title, (SCREEN_WIDTH // 2 - title.get_width() // 2, 220))
-        surface.blit(headline, (SCREEN_WIDTH // 2 - headline.get_width() // 2, 310))
-        surface.blit(result, (SCREEN_WIDTH // 2 - result.get_width() // 2, 365))
-        surface.blit(tip, (SCREEN_WIDTH // 2 - tip.get_width() // 2, 450))
+        surface.blit(headline_1, (SCREEN_WIDTH // 2 - headline_1.get_width() // 2, 300))
+        surface.blit(headline_2, (SCREEN_WIDTH // 2 - headline_2.get_width() // 2, 340))
+        surface.blit(result, (SCREEN_WIDTH // 2 - result.get_width() // 2, 395))
+        surface.blit(tip, (SCREEN_WIDTH // 2 - tip.get_width() // 2, 475))
 
 
 class GameOverScene(Scene):
@@ -308,10 +316,8 @@ class GameOverScene(Scene):
     def handle_event(self, event) -> None:
         if event.type == pygame.KEYDOWN and event.key == pygame.K_RETURN:
             player = self.manager.context.player
-            player.money = PLAYER_START_MONEY
-            player.shield = 0
-            player.shield_max = 0
-            player.fragments = {"Hope": 0, "Dream": 0, "Fear": 0}
+            player.reset_for_new_run()
+            self.manager.context.market.reset()
             self.manager.change_scene("MENU")
 
     def draw(self, surface) -> None:
