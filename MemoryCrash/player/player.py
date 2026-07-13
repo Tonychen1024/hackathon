@@ -44,11 +44,26 @@ class Player:
     fire_cooldown: float = 0.22
     last_shot_at: float = -999.0
     bullets: list[Bullet] = field(default_factory=list)
+    shield: float = 0.0
+    shield_max: float = 0.0
+    trail: list[tuple[float, float]] = field(default_factory=list)
+    trail_intensity: float = 0.0
 
     def reset_position(self, x: float, y: float) -> None:
         self.x = x
         self.y = y
         self.bullets.clear()
+        self.trail.clear()
+
+    def apply_fragment_effects(self, dream: int, hope: int, dt: float) -> None:
+        """Apply bounded Dream shield and Hope movement bonuses."""
+        old_max = self.shield_max
+        self.shield_max = min(120.0, max(0.0, dream * 15.0))
+        if self.shield_max > old_max:
+            self.shield = min(self.shield_max, self.shield + self.shield_max - old_max)
+        self.shield = min(self.shield_max, self.shield + 10.0 * dt)
+        self.speed = PLAYER_BASE_SPEED + min(180.0, max(0.0, hope * 18.0))
+        self.trail_intensity = min(1.0, hope / 10.0)
 
     def handle_movement(self, keys, dt: float, width: int, height: int) -> None:
         dx = (1 if keys[pygame.K_d] else 0) - (1 if keys[pygame.K_a] else 0)
@@ -58,6 +73,11 @@ class Player:
             length = math.hypot(dx, dy)
             self.x += (dx / length) * self.speed * dt
             self.y += (dy / length) * self.speed * dt
+            if self.trail_intensity > 0:
+                self.trail.append((self.x, self.y))
+                self.trail = self.trail[-24:]
+        elif self.trail:
+            self.trail = self.trail[-8:]
 
         self.x = max(self.radius, min(width - self.radius, self.x))
         self.y = max(self.radius, min(height - self.radius, self.y))
@@ -90,8 +110,13 @@ class Player:
             bullet.update(dt, width, height)
         self.bullets = [bullet for bullet in self.bullets if bullet.alive]
 
-    def take_damage(self, value: float) -> None:
-        self.hp = max(0.0, self.hp - value)
+    def lose_money(self, value: float) -> float:
+        """Shield absorbs a variable money hit before the wallet is charged."""
+        absorbed = min(self.shield, value)
+        self.shield -= absorbed
+        paid = min(self.money, value - absorbed)
+        self.money -= paid
+        return paid
 
     def heal(self, value: float) -> None:
         self.hp = min(PLAYER_BASE_HP, self.hp + value)

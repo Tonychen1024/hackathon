@@ -78,11 +78,12 @@ class Level:
                 )
             )
 
-    def update(self, dt: float, player, now: float, enemy_speed_multiplier: float) -> None:
+    def update(self, dt: float, player, now: float, enemy_speed_multiplier: float, enemy_damage_multiplier: float, enemy_size_multiplier: float) -> None:
         for enemy in self.enemies:
+            enemy.set_fear_strength(enemy_size_multiplier)
             enemy.move(dt, player.x, player.y, enemy_speed_multiplier)
             if math.hypot(enemy.x - player.x, enemy.y - player.y) <= enemy.radius + player.radius:
-                enemy.attack(player, now)
+                enemy.attack(player, now, enemy_damage_multiplier)
 
         for bullet in player.bullets:
             if not bullet.alive:

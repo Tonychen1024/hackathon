@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import math
+import random
 
 
 @dataclass
@@ -18,6 +19,10 @@ class Enemy:
     radius: int = 14
     attack_cooldown: float = 0.8
     _last_attack_at: float = -999.0
+    base_radius: int = 0
+
+    def __post_init__(self) -> None:
+        self.base_radius = self.radius
 
     def move(self, dt: float, target_x: float, target_y: float, speed_scale: float = 1.0) -> None:
         dx = target_x - self.x
@@ -29,11 +34,16 @@ class Enemy:
         self.x += (dx / length) * step
         self.y += (dy / length) * step
 
-    def attack(self, target, now: float = 0.0) -> None:
+    def attack(self, target, now: float = 0.0, damage_scale: float = 1.0) -> None:
         if now - self._last_attack_at < self.attack_cooldown:
             return
-        target.take_damage(self.damage)
+        # Each hit removes a fluctuating amount of money instead of HP.
+        loss = self.damage * random.uniform(3.0, 6.0) * damage_scale
+        target.lose_money(loss)
         self._last_attack_at = now
+
+    def set_fear_strength(self, size_scale: float) -> None:
+        self.radius = max(1, int(self.base_radius * size_scale))
 
     def take_damage(self, amount: float) -> None:
         self.hp = max(0.0, self.hp - amount)

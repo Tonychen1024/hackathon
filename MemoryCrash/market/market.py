@@ -33,6 +33,10 @@ class Market:
             return False
 
         total = self.stocks[stock_name]["price"] * amount
+        if stock_name == "Fear":
+            player.money += total
+            player.fragments[stock_name] += amount
+            return True
         if player.money < total:
             return False
 
@@ -44,10 +48,17 @@ class Market:
         if stock_name not in self.stocks or amount <= 0:
             return False
 
+        total = self.stocks[stock_name]["price"] * amount
+        if stock_name == "Fear":
+            if player.fragments.get(stock_name, 0) < amount or player.money < total:
+                return False
+            player.sell_fragment(stock_name, amount)
+            player.money -= total
+            return True
+
         sold = player.sell_fragment(stock_name, amount)
         if sold <= 0:
             return False
-
         player.money += self.stocks[stock_name]["price"] * sold
         return True
 
@@ -56,7 +67,10 @@ class Market:
         dream = player.fragments.get("Dream", 0)
         fear = player.fragments.get("Fear", 0)
         return {
-            "hope_regen": min(6.0, 0.35 * hope),
+            "dream_shield": min(120.0, dream * 15.0),
+            "hope_speed_bonus": min(180.0, hope * 18.0),
             "dream_fire_scale": max(0.35, 1.0 - (0.06 * dream)),
-            "fear_enemy_speed": min(2.0, 1.0 + (0.03 * fear)),
+            "fear_enemy_speed": min(2.5, 1.0 + (0.08 * fear)),
+            "fear_enemy_damage": min(3.0, 1.0 + (0.12 * fear)),
+            "fear_enemy_size": min(2.2, 1.0 + (0.07 * fear)),
         }

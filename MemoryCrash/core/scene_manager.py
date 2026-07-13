@@ -143,6 +143,9 @@ class CombatScene(Scene):
         level = context.level_manager.current_level
         context.market.update(dt)
         effects = context.market.effects(context.player)
+        context.player.apply_fragment_effects(
+            context.player.fragments["Dream"], context.player.fragments["Hope"], dt
+        )
 
         keys = pygame.key.get_pressed()
         context.player.handle_movement(keys, dt, SCREEN_WIDTH, SCREEN_HEIGHT)
@@ -151,13 +154,14 @@ class CombatScene(Scene):
             context.player.try_shoot(mx, my, pygame.time.get_ticks() / 1000.0, effects["dream_fire_scale"])
 
         context.player.update_bullets(dt, SCREEN_WIDTH, SCREEN_HEIGHT)
-        context.player.heal(effects["hope_regen"] * dt)
 
         level.update(
             dt,
             context.player,
             pygame.time.get_ticks() / 1000.0,
             effects["fear_enemy_speed"],
+            effects["fear_enemy_damage"],
+            effects["fear_enemy_size"],
         )
         level.collect_fragments(context.player)
         self.show_clear = level.cleared
@@ -173,7 +177,7 @@ class CombatScene(Scene):
             self.manager.change_scene("NEWS")
             return
 
-        if context.player.hp <= 0:
+        if context.player.money <= 0:
             self.manager.change_scene("GAME_OVER")
 
     def draw(self, surface) -> None:
@@ -181,6 +185,7 @@ class CombatScene(Scene):
         level = context.level_manager.current_level
         level.draw(surface, context.fonts, context.market.stocks["Fear"]["price"])
 
+        draw_player_effects(surface, context.player)
         pygame.draw.circle(surface, (70, 140, 255), (int(context.player.x), int(context.player.y)), context.player.radius)
         for bullet in context.player.bullets:
             pygame.draw.circle(surface, (250, 230, 90), (int(bullet.x), int(bullet.y)), bullet.radius)
@@ -209,7 +214,7 @@ class MarketScene(Scene):
 
     def enter(self, **kwargs) -> None:
         _ = kwargs
-        self.stock_names = list(self.manager.context.market.stocks.keys())
+        self.stock_names = ["Dream", "Hope", "Fear"]
         self.selected = 0
 
     @property
@@ -246,16 +251,25 @@ class MarketScene(Scene):
         money = fonts["body"].render(f"Money: {int(context.player.money)}", True, (255, 255, 255))
         surface.blit(money, (40, 100))
 
-        y = 170
-        for idx, stock_name in enumerate(self.stock_names):
+        positive_title = fonts["body"].render("POSITIVE EFFECTS  (buy costs / sell earns)", True, (120, 255, 170))
+        surface.blit(positive_title, (40, 150))
+        for idx, stock_name in enumerate(self.stock_names[:2]):
             data = context.market.stocks[stock_name]
             owned = context.player.fragments.get(stock_name, 0)
             marker = ">" if idx == self.selected else " "
             line = f"{marker} {stock_name}: Price {data['price']:,.2f} | Owned {owned}"
             color = (255, 230, 120) if idx == self.selected else (220, 220, 220)
             text = fonts["body"].render(line, True, color)
-            surface.blit(text, (40, y))
-            y += 50
+            surface.blit(text, (40, 195 + idx * 50))
+
+        negative_title = fonts["body"].render("NEGATIVE EFFECTS  (buy earns / sell costs)", True, (255, 115, 115))
+        surface.blit(negative_title, (40, 345))
+        fear = context.market.stocks["Fear"]
+        fear_owned = context.player.fragments.get("Fear", 0)
+        marker = ">" if self.selected == 2 else " "
+        color = (255, 230, 120) if self.selected == 2 else (220, 220, 220)
+        fear_line = f"{marker} Fear: Price {fear['price']:,.2f} | Owned {fear_owned}"
+        surface.blit(fonts["body"].render(fear_line, True, color), (40, 390))
 
         guide = fonts["small"].render("UP/DOWN 選擇 | B 買入 | S 賣出 1 個碎片 | ESC 返回戰鬥", True, (200, 200, 200))
         surface.blit(guide, (40, 660))
@@ -325,3 +339,23 @@ def draw_hud(surface, context: GameContext) -> None:
         txt = fonts["small"].render(f"{stock_name}: {data['price']:,.2f}", True, (255, 255, 255))
         surface.blit(txt, (x, y))
         y += 24
+
+
+def draw_player_effects(surface, player: Player) -> None:
+    """Render Hope flames and the bounded, yellow Dream shield."""
+    if player.trail_intensity > 0:
+        trail_surface = pygame.Surface(surface.get_size(), pygame.SRCALPHA)
+        total = max(1, len(player.trail))
+        for index, (x, y) in enumerate(player.trail):
+            age = (index + 1) / total
+            radius = int(3 + 9 * player.trail_intensity * age)
+            alpha = int(35 + 170 * player.trail_intensity * age)
+            pygame.draw.circle(trail_surface, (255, 105, 20, alpha), (int(x), int(y)), radius)
+            pygame.draw.circle(trail_surface, (255, 225, 80, alpha), (int(x), int(y)), max(1, radius // 2))
+        surface.blit(trail_surface, (0, 0))
+
+    if player.shield_max > 0:
+        ratio = player.shield / player.shield_max if player.shield_max else 0.0
+        width = max(1, min(8, int(1 + player.shield_max / 20)))
+        color = (255, 220, 40) if ratio > 0.2 else (140, 115, 30)
+        pygame.draw.circle(surface, color, (int(player.x), int(player.y)), player.radius + 6, width)
