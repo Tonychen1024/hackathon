@@ -1,57 +1,58 @@
-"""Market service with buy/sell and random events."""
+"""Prototype market system with buy/sell and timed price updates."""
 
 from __future__ import annotations
 
-from random import random
-
-from config import DEFAULT_STOCKS
-from market.news import pick_news, NewsEvent
-from market.stock import Stock
+import random
 
 
 class Market:
     def __init__(self) -> None:
-        self.stocks = {
-            name: Stock(name=name, **values, history=[values["price"]])
-            for name, values in DEFAULT_STOCKS.items()
+        self.stocks: dict[str, dict[str, int]] = {
+            "Hope": {"price": 20},
+            "Dream": {"price": 50},
+            "Fear": {"price": 10},
         }
-        self.last_news: NewsEvent | None = None
+        self._price_timer = 0.0
 
-    def buy(self, player, stock_name: str, amount: int) -> bool:
-        stock = self.stocks[stock_name]
-        total = stock.price * amount
-        if amount <= 0 or player.money < total:
+    def update(self, dt: float) -> None:
+        self._price_timer += dt
+        if self._price_timer < 60.0:
+            return
+
+        self._price_timer = 0.0
+        for data in self.stocks.values():
+            data["price"] = max(1, min(500, data["price"] + random.randint(-5, 5)))
+
+    def buy(self, player, stock_name: str, amount: int = 1) -> bool:
+        if stock_name not in self.stocks or amount <= 0:
             return False
+
+        price = self.stocks[stock_name]["price"]
+        total = price * amount
+        if player.money < total:
+            return False
+
         player.money -= total
         player.buy_stock(stock_name, amount)
         return True
 
-    def sell(self, player, stock_name: str, amount: int) -> bool:
-        stock = self.stocks[stock_name]
+    def sell(self, player, stock_name: str, amount: int = 1) -> bool:
+        if stock_name not in self.stocks or amount <= 0:
+            return False
+
         sold = player.sell_stock(stock_name, amount)
         if sold <= 0:
             return False
-        player.money += stock.price * sold
+
+        player.money += self.stocks[stock_name]["price"] * sold
         return True
 
-    def update_price(self) -> None:
-        for stock in self.stocks.values():
-            stock.update()
-
-    def random_event(self) -> NewsEvent | None:
-        if random() < 0.35:
-            event = pick_news()
-            if event.stock_name in self.stocks:
-                self.stocks[event.stock_name].update(1 + abs(event.impact))
-            self.last_news = event
-            return event
-        self.last_news = None
-        return None
-
-    def apply_gameplay_effects(self, player) -> dict[str, float]:
-        effect_values: dict[str, float] = {}
-        for stock in self.stocks.values():
-            normalized = (stock.price - 100) / 100
-            effect_values[stock.effect] = normalized
-            player.apply_market_effect(stock.effect, abs(normalized))
-        return effect_values
+    def effects(self, player) -> dict[str, float]:
+        hope = player.stocks.get("Hope", 0)
+        dream = player.stocks.get("Dream", 0)
+        fear = player.stocks.get("Fear", 0)
+        return {
+            "hope_regen": min(6.0, 0.35 * hope),
+            "dream_fire_scale": max(0.35, 1.0 - (0.06 * dream)),
+            "fear_enemy_speed": min(2.0, 1.0 + (0.03 * fear)),
+        }
