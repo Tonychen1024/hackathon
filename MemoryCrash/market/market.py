@@ -1,4 +1,4 @@
-"""Prototype market system with buy/sell and timed price updates."""
+"""Fragment market with live, event-driven prices."""
 
 from __future__ import annotations
 
@@ -7,32 +7,38 @@ import random
 
 class Market:
     def __init__(self) -> None:
-        self.stocks: dict[str, dict[str, int]] = {
-            "Hope": {"price": 20},
-            "Dream": {"price": 50},
-            "Fear": {"price": 10},
+        self.stocks: dict[str, dict[str, float]] = {
+            "Hope": {"price": 1000.0},
+            "Dream": {"price": 1000.0},
+            "Fear": {"price": 1000.0},
         }
         self._price_timer = 0.0
+        self.fear_shocked = False
 
     def update(self, dt: float) -> None:
         self._price_timer += dt
-        if self._price_timer < 60.0:
-            return
-
-        self._price_timer = 0.0
-        for data in self.stocks.values():
-            data["price"] = max(1, min(500, data["price"] + random.randint(-5, 5)))
-
-    def randomize_prices(self) -> None:
-        """Give Level 1 a fresh, visible opening market fluctuation."""
-        for data in self.stocks.values():
-            data["price"] = max(1, min(500, data["price"] + random.randint(-12, 12)))
+        while self._price_timer >= 1.0:
+            self._price_timer -= 1.0
+            for name, data in self.stocks.items():
+                change = 0.10 if name == "Fear" and self.fear_shocked else 0.03
+                data["price"] = round(max(1.0, data["price"] * random.choice((1 - change, 1 + change))), 2)
 
     def trigger_ai_jobs_news(self) -> None:
-        """Apply the Level 1 news shock: fear rises, hope and dream crash."""
-        self.stocks["Fear"]["price"] = min(500, int(self.stocks["Fear"]["price"] * 2.2))
-        self.stocks["Dream"]["price"] = max(1, int(self.stocks["Dream"]["price"] * 0.45))
-        self.stocks["Hope"]["price"] = max(1, int(self.stocks["Hope"]["price"] * 0.45))
+        """Apply the Level 1 news shock and make Fear permanently volatile."""
+        self.stocks["Fear"]["price"] = round(self.stocks["Fear"]["price"] * 10, 2)
+        self.fear_shocked = True
+
+    def buy_fragment(self, player, stock_name: str, amount: int = 1) -> bool:
+        if stock_name not in self.stocks or amount <= 0:
+            return False
+
+        total = self.stocks[stock_name]["price"] * amount
+        if player.money < total:
+            return False
+
+        player.money -= total
+        player.fragments[stock_name] += amount
+        return True
 
     def sell_fragment(self, player, stock_name: str, amount: int = 1) -> bool:
         if stock_name not in self.stocks or amount <= 0:

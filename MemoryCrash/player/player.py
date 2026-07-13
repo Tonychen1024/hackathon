@@ -6,7 +6,7 @@ from dataclasses import dataclass, field
 import math
 import pygame
 
-from config import PLAYER_BASE_DAMAGE, PLAYER_BASE_HP, PLAYER_BASE_SPEED
+from config import PLAYER_BASE_DAMAGE, PLAYER_BASE_HP, PLAYER_BASE_SPEED, PLAYER_START_MONEY
 
 
 @dataclass
@@ -31,7 +31,7 @@ class Player:
     hp: float = PLAYER_BASE_HP
     damage: float = PLAYER_BASE_DAMAGE
     speed: float = PLAYER_BASE_SPEED
-    money: float = 100
+    money: float = PLAYER_START_MONEY
     inventory: list[str] = field(default_factory=list)
     # Fragments are the player's tradable resources.  Keep the three keys
     # present so the HUD and market never need to special-case an empty type.

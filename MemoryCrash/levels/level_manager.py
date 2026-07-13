@@ -121,7 +121,7 @@ class Level:
             self.cleared = self.kills >= self.enemy_target and len(self.enemies) == 0
         return self.cleared
 
-    def draw(self, surface, fonts) -> None:
+    def draw(self, surface, fonts, fear_price: float = 1000.0) -> None:
         color_bank = {
             1: (20, 28, 48),
             2: (28, 45, 35),
@@ -152,6 +152,17 @@ class Level:
                 fragment.size,
             )
             pygame.draw.rect(surface, color, rect)
+
+        # A Fear price above the opening value stains the edge of the map red.
+        # The effect strengthens gradually, up to the 10x news-shock value.
+        fear_intensity = max(0.0, min(1.0, (fear_price - 1000.0) / 9000.0))
+        if fear_intensity > 0:
+            overlay = pygame.Surface(surface.get_size(), pygame.SRCALPHA)
+            alpha = int(55 + 145 * fear_intensity)
+            width = int(18 + 52 * fear_intensity)
+            pygame.draw.rect(overlay, (210, 0, 20, alpha), overlay.get_rect(), width)
+            pygame.draw.rect(overlay, (100, 0, 10, alpha // 2), overlay.get_rect().inflate(-width, -width), 8)
+            surface.blit(overlay, (0, 0))
 
         label = fonts["body"].render(self.name, True, (240, 240, 255))
         surface.blit(label, (20, 18))

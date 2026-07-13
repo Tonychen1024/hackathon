@@ -123,8 +123,6 @@ class CombatScene(Scene):
         context = self.manager.context
         context.level_manager.current_level.enter()
         context.player.reset_position(SCREEN_WIDTH / 2, SCREEN_HEIGHT / 2)
-        if context.level_manager.current_level.index == 1:
-            context.market.randomize_prices()
 
     def handle_event(self, event) -> None:
         if event.type == pygame.KEYDOWN and event.key == pygame.K_TAB:
@@ -181,7 +179,7 @@ class CombatScene(Scene):
     def draw(self, surface) -> None:
         context = self.manager.context
         level = context.level_manager.current_level
-        level.draw(surface, context.fonts)
+        level.draw(surface, context.fonts, context.market.stocks["Fear"]["price"])
 
         pygame.draw.circle(surface, (70, 140, 255), (int(context.player.x), int(context.player.y)), context.player.radius)
         for bullet in context.player.bullets:
@@ -227,6 +225,8 @@ class MarketScene(Scene):
             self.selected = max(0, self.selected - 1)
         elif event.key == pygame.K_DOWN:
             self.selected = min(len(self.stock_names) - 1, self.selected + 1)
+        elif event.key == pygame.K_b:
+            context.market.buy_fragment(context.player, self.selected_stock, 1)
         elif event.key == pygame.K_s:
             context.market.sell_fragment(context.player, self.selected_stock, 1)
         elif event.key == pygame.K_ESCAPE:
@@ -251,13 +251,13 @@ class MarketScene(Scene):
             data = context.market.stocks[stock_name]
             owned = context.player.fragments.get(stock_name, 0)
             marker = ">" if idx == self.selected else " "
-            line = f"{marker} {stock_name}: Price {data['price']} | Owned {owned}"
+            line = f"{marker} {stock_name}: Price {data['price']:,.2f} | Owned {owned}"
             color = (255, 230, 120) if idx == self.selected else (220, 220, 220)
             text = fonts["body"].render(line, True, color)
             surface.blit(text, (40, y))
             y += 50
 
-        guide = fonts["small"].render("UP/DOWN 選擇 | S 賣出 1 個碎片 | ESC 返回戰鬥", True, (200, 200, 200))
+        guide = fonts["small"].render("UP/DOWN 選擇 | B 買入 | S 賣出 1 個碎片 | ESC 返回戰鬥", True, (200, 200, 200))
         surface.blit(guide, (40, 660))
 
 
@@ -276,7 +276,7 @@ class NewsScene(Scene):
         surface.fill((15, 12, 24))
         title = fonts["title"].render("BREAKING NEWS", True, (255, 100, 100))
         headline = fonts["body"].render("AI is about to explode and replace 80% of human jobs", True, (255, 235, 170))
-        result = fonts["body"].render("FEAR surges | DREAM and HOPE crash", True, (220, 220, 255))
+        result = fonts["body"].render("FEAR x10 and becomes highly volatile", True, (220, 220, 255))
         tip = fonts["small"].render("Press ENTER, SPACE, or ESC to resume combat", True, (200, 200, 200))
         surface.blit(title, (SCREEN_WIDTH // 2 - title.get_width() // 2, 220))
         surface.blit(headline, (SCREEN_WIDTH // 2 - headline.get_width() // 2, 310))
@@ -322,6 +322,6 @@ def draw_hud(surface, context: GameContext) -> None:
     x = SCREEN_WIDTH - 260
     y = 16
     for stock_name, data in context.market.stocks.items():
-        txt = fonts["small"].render(f"{stock_name}: {data['price']}", True, (255, 255, 255))
+        txt = fonts["small"].render(f"{stock_name}: {data['price']:,.2f}", True, (255, 255, 255))
         surface.blit(txt, (x, y))
         y += 24
