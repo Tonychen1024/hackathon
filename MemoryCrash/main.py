@@ -1,5 +1,5 @@
 """Entry point for Memory Crash framework."""
-
+import pygame
 from game import Game
 
 

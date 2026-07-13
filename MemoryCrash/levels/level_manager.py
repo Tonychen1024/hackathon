@@ -21,17 +21,24 @@ class Level:
         raise NotImplementedError
 
 
-@dataclass
+
 class BaseLevel(Level):
     name: str
     chapter_text: str
     map_obj: object
     enemy_factory: list
-    boss_factory: object
+    boss_factory: list
+    enemies: list = field(default_factory=list)
     timer_to_complete: float = 12.0
     elapsed: float = 0.0
+    def __init__(self, name: str = "Base Level", chapter_text: str = "Chapter Text", map_obj = None, enemy_factory = None, boss_factory = None, timer_to_complete: float = 14.0) -> None:
+        self.name: str = name
+        self.chapter_text: str = chapter_text
+        self.map_obj = map_obj
+        self.enemy_factory = enemy_factory
+        self.boss_factory = boss_factory
+        self.timer_to_complete = timer_to_complete
     loaded: bool = False
-    enemies: list = field(default_factory=list)
 
     def load(self) -> None:
         self.enemies = [factory() for factory in self.enemy_factory]

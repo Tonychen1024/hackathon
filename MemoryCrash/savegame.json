@@ -1,0 +1,35 @@
+{
+  "player_assets": {
+    "money": 500,
+    "inventory": [],
+    "stocks": {}
+  },
+  "stock_data": {
+    "Childhood": {
+      "price": 100.0,
+      "history": [
+        100.0
+      ]
+    },
+    "Dream": {
+      "price": 120.0,
+      "history": [
+        120.0
+      ]
+    },
+    "Regret": {
+      "price": 90.0,
+      "history": [
+        90.0
+      ]
+    },
+    "Fear": {
+      "price": 95.0,
+      "history": [
+        95.0
+      ]
+    }
+  },
+  "unlocked_levels": 1,
+  "high_score": 0
+}
