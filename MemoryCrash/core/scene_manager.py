@@ -117,11 +117,14 @@ class CombatScene(Scene):
         self.show_clear = False
 
     def enter(self, **kwargs) -> None:
-        _ = kwargs
+        if kwargs.get("resume", False):
+            return
         self.show_clear = False
         context = self.manager.context
         context.level_manager.current_level.enter()
         context.player.reset_position(SCREEN_WIDTH / 2, SCREEN_HEIGHT / 2)
+        if context.level_manager.current_level.index == 1:
+            context.market.randomize_prices()
 
     def handle_event(self, event) -> None:
         if event.type == pygame.KEYDOWN and event.key == pygame.K_TAB:
@@ -160,6 +163,17 @@ class CombatScene(Scene):
         )
         level.collect_fragments(context.player)
         self.show_clear = level.cleared
+
+        if (
+            level.index == 1
+            and not level.news_triggered
+            and level.collected_fragments >= 8
+        ):
+            level.news_triggered = True
+            context.market.trigger_ai_jobs_news()
+            self.manager.last_combat_scene = self.combat_scene_name
+            self.manager.change_scene("NEWS")
+            return
 
         if context.player.hp <= 0:
             self.manager.change_scene("GAME_OVER")
@@ -213,12 +227,10 @@ class MarketScene(Scene):
             self.selected = max(0, self.selected - 1)
         elif event.key == pygame.K_DOWN:
             self.selected = min(len(self.stock_names) - 1, self.selected + 1)
-        elif event.key == pygame.K_b:
-            context.market.buy(context.player, self.selected_stock, 1)
         elif event.key == pygame.K_s:
-            context.market.sell(context.player, self.selected_stock, 1)
+            context.market.sell_fragment(context.player, self.selected_stock, 1)
         elif event.key == pygame.K_ESCAPE:
-            self.manager.change_scene(self.manager.last_combat_scene)
+            self.manager.change_scene(self.manager.last_combat_scene, resume=True)
 
     def update(self, dt: float) -> None:
         self.manager.context.market.update(dt)
@@ -237,7 +249,7 @@ class MarketScene(Scene):
         y = 170
         for idx, stock_name in enumerate(self.stock_names):
             data = context.market.stocks[stock_name]
-            owned = context.player.stocks.get(stock_name, 0)
+            owned = context.player.fragments.get(stock_name, 0)
             marker = ">" if idx == self.selected else " "
             line = f"{marker} {stock_name}: Price {data['price']} | Owned {owned}"
             color = (255, 230, 120) if idx == self.selected else (220, 220, 220)
@@ -245,8 +257,31 @@ class MarketScene(Scene):
             surface.blit(text, (40, y))
             y += 50
 
-        guide = fonts["small"].render("UP/DOWN 選擇 | B 買入 | S 賣出 | ESC 返回戰鬥", True, (200, 200, 200))
+        guide = fonts["small"].render("UP/DOWN 選擇 | S 賣出 1 個碎片 | ESC 返回戰鬥", True, (200, 200, 200))
         surface.blit(guide, (40, 660))
+
+
+class NewsScene(Scene):
+    """A modal news screen; combat is paused because its scene is inactive."""
+
+    name = "NEWS"
+
+    def handle_event(self, event) -> None:
+        if event.type == pygame.KEYDOWN and event.key in (pygame.K_RETURN, pygame.K_SPACE, pygame.K_ESCAPE):
+            self.manager.change_scene(self.manager.last_combat_scene, resume=True)
+
+    def draw(self, surface) -> None:
+        context = self.manager.context
+        fonts = context.fonts
+        surface.fill((15, 12, 24))
+        title = fonts["title"].render("BREAKING NEWS", True, (255, 100, 100))
+        headline = fonts["body"].render("AI is about to explode and replace 80% of human jobs", True, (255, 235, 170))
+        result = fonts["body"].render("FEAR surges | DREAM and HOPE crash", True, (220, 220, 255))
+        tip = fonts["small"].render("Press ENTER, SPACE, or ESC to resume combat", True, (200, 200, 200))
+        surface.blit(title, (SCREEN_WIDTH // 2 - title.get_width() // 2, 220))
+        surface.blit(headline, (SCREEN_WIDTH // 2 - headline.get_width() // 2, 310))
+        surface.blit(result, (SCREEN_WIDTH // 2 - result.get_width() // 2, 365))
+        surface.blit(tip, (SCREEN_WIDTH // 2 - tip.get_width() // 2, 450))
 
 
 class GameOverScene(Scene):
@@ -276,7 +311,9 @@ def draw_hud(surface, context: GameContext) -> None:
         f"HP: {int(player.hp)}",
         f"Money: {int(player.money)}",
         f"Level: {level.index}",
-        f"Memory Count: {player.memory_count}",
+        f"hope_owned: {player.fragments['Hope']}",
+        f"dream_owned: {player.fragments['Dream']}",
+        f"fear_owned: {player.fragments['Fear']}",
     ]
     for idx, line in enumerate(left_lines):
         txt = fonts["body"].render(line, True, (240, 240, 255))

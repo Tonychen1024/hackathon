@@ -10,7 +10,7 @@ import pygame
 from enemy.enemy import Enemy
 
 
-FRAGMENT_TYPES = ["Hope", "Dream", "Fear", "Love"]
+FRAGMENT_TYPES = ["Hope", "Dream", "Fear"]
 
 
 @dataclass
@@ -31,12 +31,16 @@ class Level:
     fragments: list[MemoryFragment] = field(default_factory=list)
     kills: int = 0
     cleared: bool = False
+    news_triggered: bool = False
+    collected_fragments: int = 0
 
     def enter(self) -> None:
         self.enemies = []
         self.fragments = []
         self.kills = 0
         self.cleared = False
+        self.news_triggered = False
+        self.collected_fragments = 0
         self.spawn_enemy()
 
     def exit(self) -> None:
@@ -105,6 +109,7 @@ class Level:
         for fragment in self.fragments:
             if math.hypot(fragment.x - player.x, fragment.y - player.y) <= fragment.size + player.radius:
                 player.add_item(fragment.kind)
+                self.collected_fragments += 1
             else:
                 remain.append(fragment)
         self.fragments = remain
@@ -137,7 +142,6 @@ class Level:
             "Hope": (120, 255, 170),
             "Dream": (130, 160, 255),
             "Fear": (220, 120, 255),
-            "Love": (255, 130, 180),
         }
         for fragment in self.fragments:
             color = fragment_colors.get(fragment.kind, (255, 255, 255))

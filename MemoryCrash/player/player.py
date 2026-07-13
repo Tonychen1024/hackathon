@@ -33,7 +33,11 @@ class Player:
     speed: float = PLAYER_BASE_SPEED
     money: float = 100
     inventory: list[str] = field(default_factory=list)
-    stocks: dict[str, int] = field(default_factory=dict)
+    # Fragments are the player's tradable resources.  Keep the three keys
+    # present so the HUD and market never need to special-case an empty type.
+    fragments: dict[str, int] = field(
+        default_factory=lambda: {"Hope": 0, "Dream": 0, "Fear": 0}
+    )
     x: float = 640
     y: float = 360
     radius: int = 16
@@ -93,16 +97,20 @@ class Player:
         self.hp = min(PLAYER_BASE_HP, self.hp + value)
 
     def add_item(self, item_name: str) -> None:
+        if item_name in self.fragments:
+            self.fragments[item_name] += 1
+            return
         self.inventory.append(item_name)
 
-    def buy_stock(self, stock_name: str, amount: int) -> None:
-        self.stocks[stock_name] = self.stocks.get(stock_name, 0) + amount
-
-    def sell_stock(self, stock_name: str, amount: int) -> int:
-        owned = self.stocks.get(stock_name, 0)
+    def sell_fragment(self, fragment_name: str, amount: int = 1) -> int:
+        owned = self.fragments.get(fragment_name, 0)
         sold = min(amount, owned)
-        self.stocks[stock_name] = owned - sold
+        self.fragments[fragment_name] = owned - sold
         return sold
+
+    @property
+    def fragment_count(self) -> int:
+        return sum(self.fragments.values())
 
     @property
     def memory_count(self) -> int:
