@@ -763,7 +763,7 @@ def draw_money_health_bar(surface, player: Player) -> None:
 
 
 def draw_price_chart(surface, context: GameContext, rect: pygame.Rect) -> None:
-    """Plot the last five seconds of live fragment prices in the market."""
+    """Plot the last five seconds of live fragment prices as OHLC candles."""
     draw_panel(surface, rect, border=UI_DREAM, fill=(15, 26, 49), radius=14)
     title = context.fonts["body"].render("LIVE PRICE HISTORY", True, UI_TEXT)
     subtitle = context.fonts["small"].render("LAST 5 SECONDS", True, UI_MUTED)
@@ -779,7 +779,9 @@ def draw_price_chart(surface, context: GameContext, rect: pygame.Rect) -> None:
         y = plot.y + plot.height * offset // 4
         pygame.draw.line(surface, (55, 68, 95), (plot.x, y), (plot.right, y), 1)
 
-    series = {name: context.market.recent_history(name) for name in ("Hope", "Dream", "Fear")}
+    names = ("Hope", "Dream", "Fear")
+    series = {name: context.market.recent_history(name) for name in names}
+    candles = context.market.recent_candles("Fear")
     values = [price for points in series.values() for _, price in points]
     low, high = (min(values), max(values)) if values else (0.0, 1.0)
     if high - low < 1:
@@ -788,24 +790,52 @@ def draw_price_chart(surface, context: GameContext, rect: pygame.Rect) -> None:
     low -= padding
     high += padding
     start = context.market.elapsed - 5.0
-    colors = {"Hope": (110, 255, 165), "Dream": (120, 175, 255), "Fear": (255, 75, 95)}
+    legend_colors = {"Hope": (110, 255, 165), "Dream": (120, 175, 255), "Fear": (255, 75, 95)}
+    candle_layer = pygame.Surface(surface.get_size(), pygame.SRCALPHA)
+    candle_width = max(4, min(12, plot.width // 42))
 
-    for index, (name, points) in enumerate(series.items()):
-        color = colors[name]
+    def price_to_y(price: float) -> int:
+        return int(plot.bottom - (price - low) / (high - low) * plot.height)
+
+    for index, name in enumerate(names):
+        color = legend_colors[name]
         legend = context.fonts["small"].render(name, True, color)
         surface.blit(legend, (plot.x + index * 110, rect.bottom - 30))
+
+        # Preserve the original per-fragment trend line beneath the candles.
+        # It makes the long-term direction immediately legible while the OHLC
+        # marks show the short-term volatility within each interval.
         coords = [
             (
                 int(plot.x + max(0.0, min(1.0, (timestamp - start) / 5.0)) * plot.width),
-                int(plot.bottom - (price - low) / (high - low) * plot.height),
+                price_to_y(price),
             )
-            for timestamp, price in points
+            for timestamp, price in series[name]
         ]
         if len(coords) >= 2:
             pygame.draw.aalines(surface, color, False, coords)
             pygame.draw.lines(surface, color, False, coords, 2)
         elif coords:
-            pygame.draw.circle(surface, color, coords[0], 4)
+            pygame.draw.circle(surface, color, coords[0], 3)
+
+        if name != "Fear":
+            continue
+
+        for timestamp, open_price, high_price, low_price, close_price in candles:
+            x = int(plot.x + max(0.0, min(1.0, (timestamp - start + 0.25) / 5.0)) * plot.width)
+            open_y, high_y = price_to_y(open_price), price_to_y(high_price)
+            low_y, close_y = price_to_y(low_price), price_to_y(close_price)
+            rising = close_price >= open_price
+            color = (72, 235, 145, 135) if rising else (255, 82, 102, 135)
+            edge = (125, 255, 190, 220) if rising else (255, 145, 155, 220)
+            pygame.draw.line(candle_layer, edge, (x, high_y), (x, low_y), 2)
+            body_top = min(open_y, close_y)
+            body_height = max(3, abs(close_y - open_y))
+            body = pygame.Rect(x - candle_width // 2, body_top, candle_width, body_height)
+            pygame.draw.rect(candle_layer, color, body, border_radius=2)
+            pygame.draw.rect(candle_layer, edge, body, 1, border_radius=2)
+
+    surface.blit(candle_layer, (0, 0))
 
     top_label = context.fonts["small"].render(f"{high:,.0f}", True, (175, 185, 210))
     bottom_label = context.fonts["small"].render(f"{low:,.0f}", True, (175, 185, 210))

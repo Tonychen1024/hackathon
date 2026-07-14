@@ -150,6 +150,31 @@ class Market:
     def recent_history(self, stock_name: str, seconds: float = 5.0) -> list[tuple[float, float]]:
         return [point for point in self.history[stock_name] if point[0] >= self.elapsed - seconds]
 
+    def recent_candles(
+        self, stock_name: str, seconds: float = 5.0, interval: float = 0.5
+    ) -> list[tuple[float, float, float, float, float]]:
+        """Aggregate recent ticks into standard open/high/low/close candles."""
+        points = self.recent_history(stock_name, seconds)
+        if not points:
+            return []
+
+        start = self.elapsed - seconds
+        buckets: dict[int, list[float]] = {}
+        for timestamp, price in points:
+            bucket = max(0, min(int(seconds / interval) - 1, int((timestamp - start) / interval)))
+            buckets.setdefault(bucket, []).append(price)
+
+        candles: list[tuple[float, float, float, float, float]] = []
+        previous_close = points[0][1]
+        for bucket in range(int(seconds / interval)):
+            prices = buckets.get(bucket)
+            if prices:
+                open_price = previous_close
+                close_price = prices[-1]
+                candles.append((start + bucket * interval, open_price, max(prices + [open_price]), min(prices + [open_price]), close_price))
+                previous_close = close_price
+        return candles
+
     def buy_fragment(self, player, stock_name: str, amount: int = 1) -> bool:
         if (
             stock_name not in self.stocks
