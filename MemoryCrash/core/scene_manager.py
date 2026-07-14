@@ -255,10 +255,16 @@ class MarketScene(Scene):
         elif event.key == pygame.K_DOWN:
             self.selected = min(len(self.stock_names) - 1, self.selected + 1)
         elif event.key == pygame.K_b:
+            if context.market.level1_transaction_limit_reached:
+                self.manager.change_scene("TRANSACTION_LIMIT")
+                return
             changed = context.market.buy_fragment(context.player, self.selected_stock, 1)
             if changed and context.level_manager.current_level.world_cup and not context.market.level2_fee_notice_shown:
                 context.market.level2_fee_notice_shown = True; self.manager.change_scene("FEE_NOTICE")
         elif event.key == pygame.K_s:
+            if context.market.level1_transaction_limit_reached:
+                self.manager.change_scene("TRANSACTION_LIMIT")
+                return
             changed = context.market.sell_fragment(context.player, self.selected_stock, 1)
             if changed and context.level_manager.current_level.world_cup and not context.market.level2_fee_notice_shown:
                 context.market.level2_fee_notice_shown = True; self.manager.change_scene("FEE_NOTICE")
@@ -364,6 +370,26 @@ class FeeNoticeScene(Scene):
         surface.fill((20,20,32)); f=self.manager.context.fonts
         for text,y in (("You're too fond of stock trading.",290),("There's now a 5% transaction fee.",340),("Press ENTER",420)):
             t=f['body'].render(text,True,(255,220,130)); surface.blit(t,(SCREEN_WIDTH//2-t.get_width()//2,y))
+
+
+class TransactionLimitScene(Scene):
+    name = "TRANSACTION_LIMIT"
+
+    def handle_event(self, event) -> None:
+        if event.type == pygame.KEYDOWN and event.key in (pygame.K_RETURN, pygame.K_ESCAPE):
+            self.manager.change_scene("MARKET")
+
+    def draw(self, surface) -> None:
+        surface.fill((20, 20, 32))
+        fonts = self.manager.context.fonts
+        message = fonts["body"].render(
+            "You have reached your transaction limit", True, (255, 220, 130)
+        )
+        tip = fonts["small"].render(
+            "Press ENTER to return to the market", True, (240, 240, 255)
+        )
+        surface.blit(message, (SCREEN_WIDTH // 2 - message.get_width() // 2, 320))
+        surface.blit(tip, (SCREEN_WIDTH // 2 - tip.get_width() // 2, 390))
 
 
 class GameOverScene(Scene):
