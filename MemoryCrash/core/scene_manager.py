@@ -13,6 +13,9 @@ from market.market import Market
 from player.player import Player
 
 
+LEVEL3_FAST_FORWARD_BUTTON = pygame.Rect(SCREEN_WIDTH - 520, 14, 240, 38)
+
+
 class Scene:
     name = "SCENE"
 
@@ -141,6 +144,19 @@ class CombatScene(Scene):
             self.manager.change_scene("NEWS")
 
     def handle_event(self, event) -> None:
+        if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+            context = self.manager.context
+            level = context.level_manager.current_level
+            if (
+                level.is_dream_factory
+                and level.level3_phase == "friendly"
+                and level.wave_index in (1, 2, 3)
+                and LEVEL3_FAST_FORWARD_BUTTON.collidepoint(event.pos)
+                and level.skip_to_level3_transformation()
+            ):
+                context.market.trigger_ai_revolt()
+            return
+
         if event.type != pygame.KEYDOWN:
             return
         if event.key == pygame.K_TAB:
@@ -239,6 +255,22 @@ class CombatScene(Scene):
         level.draw_combat_effects(surface)
 
         draw_hud(surface, context)
+
+        if (
+            level.is_dream_factory
+            and level.level3_phase == "friendly"
+            and level.wave_index in (1, 2, 3)
+        ):
+            pygame.draw.rect(surface, (40, 92, 142), LEVEL3_FAST_FORWARD_BUTTON, border_radius=7)
+            pygame.draw.rect(surface, (170, 230, 255), LEVEL3_FAST_FORWARD_BUTTON, 2, border_radius=7)
+            label = context.fonts["small"].render("FAST FORWARD -> AI TRANSFORMATION", True, (240, 250, 255))
+            surface.blit(
+                label,
+                (
+                    LEVEL3_FAST_FORWARD_BUTTON.centerx - label.get_width() // 2,
+                    LEVEL3_FAST_FORWARD_BUTTON.centery - label.get_height() // 2,
+                ),
+            )
 
         if self.show_clear and not level.is_dream_factory:
             clear = context.fonts["title"].render("LEVEL CLEAR", True, (255, 255, 150))

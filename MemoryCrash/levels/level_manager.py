@@ -194,6 +194,17 @@ class Level:
         ]
         self.level3_phase = "rogue"
 
+    def skip_to_level3_transformation(self) -> bool:
+        """End the friendly waves and play the AI transformation before Wave 4."""
+        if self.level3_phase != "friendly" or self.wave_index not in (1, 2, 3):
+            return False
+        self.enemies.clear()
+        self.level3_phase = "rebellion_animation"
+        self.rebellion_elapsed = 0.0
+        self.announcement = "The AI is transforming..."
+        self.announcement_timer = 3.0
+        return True
+
     def make_rolling_enemy(self, wave: int) -> Enemy:
         # Each friendly-AI wave is visibly larger and hits harder than the last.
         hp, damage, speed, radius = {
@@ -278,6 +289,7 @@ class Level:
             self.keep_enemy_in_bounds(enemy)
             if math.hypot(enemy.x - player.x, enemy.y - player.y) <= enemy.radius + player.radius:
                 enemy.attack(player, now, money_damage)
+
         self.resolve_player_bullets(player)
         self.enemies = [enemy for enemy in self.enemies if enemy.alive]
         self.cleared = self.kills >= self.enemy_target and not self.enemies
