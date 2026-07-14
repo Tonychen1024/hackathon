@@ -13,7 +13,88 @@ from market.market import Market
 from player.player import Player
 
 
-LEVEL3_FAST_FORWARD_BUTTON = pygame.Rect(SCREEN_WIDTH - 520, 14, 240, 38)
+# This control contains a long label, so keep enough horizontal breathing room
+# between it and the exchange HUD on the right.
+LEVEL3_FAST_FORWARD_BUTTON = pygame.Rect(SCREEN_WIDTH - 630, 14, 360, 42)
+
+UI_BG = (9, 13, 25)
+UI_PANEL = (19, 28, 48)
+UI_PANEL_ALT = (27, 39, 66)
+UI_BORDER = (76, 107, 164)
+UI_TEXT = (238, 244, 255)
+UI_MUTED = (158, 177, 212)
+UI_ACCENT = (93, 207, 255)
+UI_HOPE = (112, 255, 174)
+UI_DREAM = (125, 169, 255)
+UI_FEAR = (255, 104, 127)
+UI_GOLD = (255, 213, 110)
+
+
+def draw_screen_background(surface, accent: tuple[int, int, int] = UI_ACCENT) -> None:
+    """Draw the shared dark-tech backdrop used by menus and modal screens."""
+    surface.fill(UI_BG)
+    glow = pygame.Surface(surface.get_size(), pygame.SRCALPHA)
+    pygame.draw.circle(glow, (*accent, 24), (SCREEN_WIDTH - 90, 70), 310)
+    pygame.draw.circle(glow, (100, 92, 210, 16), (150, SCREEN_HEIGHT - 30), 260)
+    surface.blit(glow, (0, 0))
+    for x in range(0, SCREEN_WIDTH + 1, 64):
+        pygame.draw.line(surface, (24, 35, 59), (x, 0), (x, SCREEN_HEIGHT), 1)
+    for y in range(0, SCREEN_HEIGHT + 1, 64):
+        pygame.draw.line(surface, (24, 35, 59), (0, y), (SCREEN_WIDTH, y), 1)
+
+
+def draw_panel(surface, rect: pygame.Rect, *, border: tuple[int, int, int] = UI_BORDER, fill: tuple[int, int, int] = UI_PANEL, radius: int = 14) -> None:
+    """Draw a raised, subtly highlighted information panel."""
+    shadow = rect.move(0, 6)
+    pygame.draw.rect(surface, (4, 7, 14), shadow, border_radius=radius)
+    pygame.draw.rect(surface, fill, rect, border_radius=radius)
+    pygame.draw.rect(surface, border, rect, 2, border_radius=radius)
+    pygame.draw.line(surface, tuple(min(255, channel + 42) for channel in border), (rect.x + radius, rect.y + 2), (rect.right - radius, rect.y + 2), 1)
+
+
+def draw_centered_text(surface, font, text: str, color: tuple[int, int, int], center: tuple[int, int]) -> None:
+    label = font.render(text, True, color)
+    surface.blit(label, label.get_rect(center=center))
+
+
+def draw_centered_wrapped_text(
+    surface, font, text: str, color: tuple[int, int, int], center_x: int, top: int, max_width: int, line_gap: int = 7
+) -> int:
+    """Draw a centered paragraph within a safe text width and return its height."""
+    words = text.split()
+    lines: list[str] = []
+    current = ""
+    for word in words:
+        candidate = f"{current} {word}".strip()
+        if current and font.size(candidate)[0] > max_width:
+            lines.append(current)
+            current = word
+        else:
+            current = candidate
+    if current:
+        lines.append(current)
+
+    y = top
+    for line in lines:
+        label = font.render(line, True, color)
+        surface.blit(label, label.get_rect(midtop=(center_x, y)))
+        y += label.get_height() + line_gap
+    return y - top - line_gap
+
+
+def draw_keycap(surface, font, text: str, position: tuple[int, int], accent: tuple[int, int, int] = UI_BORDER) -> int:
+    label = font.render(text, True, UI_TEXT)
+    rect = label.get_rect(topleft=(position[0] + 10, position[1] + 5)).inflate(20, 10)
+    pygame.draw.rect(surface, UI_PANEL_ALT, rect, border_radius=6)
+    pygame.draw.rect(surface, accent, rect, 1, border_radius=6)
+    surface.blit(label, (position[0] + 10, position[1] + 5))
+    return rect.width
+
+
+def draw_section_label(surface, font, text: str, position: tuple[int, int], color: tuple[int, int, int] = UI_MUTED) -> None:
+    label = font.render(text, True, color)
+    surface.blit(label, position)
+    pygame.draw.line(surface, color, (position[0], position[1] + label.get_height() + 6), (position[0] + 260, position[1] + label.get_height() + 6), 1)
 
 
 class Scene:
@@ -106,20 +187,37 @@ class MenuScene(Scene):
             self.manager.change_scene(next_scene)
 
     def draw(self, surface) -> None:
-        surface.fill((12, 15, 25))
+        draw_screen_background(surface)
         fonts = self.manager.context.fonts
-        title = fonts["title"].render(TITLE + " Prototype", True, (130, 180, 255))
-        tip = fonts["body"].render("ENTER TO START | UP / DOWN TO SELECT", True, (236, 240, 255))
-        surface.blit(title, (SCREEN_WIDTH // 2 - title.get_width() // 2, 120))
-        surface.blit(tip, (SCREEN_WIDTH // 2 - tip.get_width() // 2, 190))
+        draw_panel(surface, pygame.Rect(152, 70, 976, 570), border=UI_ACCENT, fill=(16, 27, 49), radius=22)
+        draw_centered_text(surface, fonts["title"], TITLE.upper(), UI_TEXT, (SCREEN_WIDTH // 2, 135))
+        draw_centered_text(surface, fonts["small"], "A MEMORY-DRIVEN MARKET SURVIVAL GAME", UI_ACCENT, (SCREEN_WIDTH // 2, 178))
+        draw_section_label(surface, fonts["small"], "SELECT A SCENARIO", (226, 222))
 
-        y = 260
+        descriptions = (
+            "Survive the first wave of unstable memories.",
+            "Enter the World Cup market with limited trades.",
+            "Trust the AI assistant — until it changes its mind.",
+        )
+        y = 262
         for idx, level in enumerate(self.manager.context.level_manager.levels):
-            marker = ">" if idx == self.selected else " "
-            color = (255, 240, 120) if idx == self.selected else (210, 220, 250)
-            row = fonts["body"].render(f"{marker} {level.name}", True, color)
-            surface.blit(row, (380, y))
-            y += 52
+            selected = idx == self.selected
+            row = pygame.Rect(226, y, 828, 82)
+            accent = (UI_GOLD if idx == 1 else UI_DREAM if idx == 2 else UI_ACCENT)
+            draw_panel(surface, row, border=accent if selected else (55, 75, 112), fill=(32, 47, 77) if selected else UI_PANEL, radius=12)
+            badge = pygame.Rect(row.x + 18, row.y + 17, 48, 48)
+            pygame.draw.rect(surface, accent if selected else UI_PANEL_ALT, badge, border_radius=10)
+            draw_centered_text(surface, fonts["body"], f"{idx + 1:02}", UI_BG if selected else UI_TEXT, badge.center)
+            name = fonts["body"].render(level.name.replace("LEVEL ", ""), True, UI_TEXT if selected else (205, 217, 240))
+            surface.blit(name, (row.x + 86, row.y + 14))
+            detail = fonts["small"].render(descriptions[idx], True, UI_MUTED)
+            surface.blit(detail, (row.x + 87, row.y + 49))
+            if selected:
+                marker = fonts["small"].render("READY", True, accent)
+                surface.blit(marker, (row.right - marker.get_width() - 25, row.y + 31))
+            y += 96
+
+        draw_centered_text(surface, fonts["small"], "UP / DOWN  •  SELECT        ENTER  •  START", UI_MUTED, (SCREEN_WIDTH // 2, 602))
 
 
 class CombatScene(Scene):
@@ -262,8 +360,7 @@ class CombatScene(Scene):
             and level.level3_phase == "friendly"
             and level.wave_index in (1, 2, 3)
         ):
-            pygame.draw.rect(surface, (40, 92, 142), LEVEL3_FAST_FORWARD_BUTTON, border_radius=7)
-            pygame.draw.rect(surface, (170, 230, 255), LEVEL3_FAST_FORWARD_BUTTON, 2, border_radius=7)
+            draw_panel(surface, LEVEL3_FAST_FORWARD_BUTTON, border=UI_ACCENT, fill=(27, 77, 114), radius=8)
             label = context.fonts["small"].render("FAST FORWARD -> AI TRANSFORMATION", True, (240, 250, 255))
             surface.blit(
                 label,
@@ -274,10 +371,10 @@ class CombatScene(Scene):
             )
 
         if self.show_clear and not level.is_dream_factory:
-            clear = context.fonts["title"].render("LEVEL CLEAR", True, (255, 255, 150))
-            tip = context.fonts["body"].render("Press ENTER for next level", True, (255, 255, 255))
-            surface.blit(clear, (SCREEN_WIDTH // 2 - clear.get_width() // 2, 280))
-            surface.blit(tip, (SCREEN_WIDTH // 2 - tip.get_width() // 2, 345))
+            modal = pygame.Rect(SCREEN_WIDTH // 2 - 260, 250, 520, 190)
+            draw_panel(surface, modal, border=UI_GOLD, fill=(48, 43, 30), radius=18)
+            draw_centered_text(surface, context.fonts["title"], "LEVEL CLEAR", UI_GOLD, (modal.centerx, modal.y + 63))
+            draw_centered_text(surface, context.fonts["small"], "PRESS ENTER TO CONTINUE", UI_TEXT, (modal.centerx, modal.y + 127))
 
 
 class LevelScene(CombatScene):
@@ -291,9 +388,13 @@ class Level2IntroScene(Scene):
         self.remaining -= dt
         if self.remaining <= 0: self.manager.change_scene("LEVEL")
     def draw(self, surface):
-        surface.fill((14,32,50)); f=self.manager.context.fonts
-        for text,y in (("Now, The World Cup is in full swing,",285),("hold onto your hopes for the country you support!",340)):
-            t=f['body'].render(text,True,(245,240,200)); surface.blit(t,(SCREEN_WIDTH//2-t.get_width()//2,y))
+        draw_screen_background(surface, UI_HOPE)
+        f = self.manager.context.fonts
+        draw_panel(surface, pygame.Rect(245, 200, 790, 300), border=UI_HOPE, fill=(18, 47, 45), radius=22)
+        draw_centered_text(surface, f["title"], "WORLD CUP", UI_GOLD, (SCREEN_WIDTH // 2, 275))
+        draw_centered_text(surface, f["body"], "The World Cup is in full swing.", UI_TEXT, (SCREEN_WIDTH // 2, 343))
+        draw_centered_text(surface, f["body"], "Hold onto the hopes for the country you support.", UI_TEXT, (SCREEN_WIDTH // 2, 385))
+        draw_centered_text(surface, f["small"], f"KICK-OFF IN {max(0, math.ceil(self.remaining))}", UI_HOPE, (SCREEN_WIDTH // 2, 448))
 
 
 class MarketScene(Scene):
@@ -340,38 +441,45 @@ class MarketScene(Scene):
     def draw(self, surface) -> None:
         context = self.manager.context
         fonts = context.fonts
-        surface.fill((0, 0, 0))
+        draw_screen_background(surface, UI_DREAM)
+        draw_panel(surface, pygame.Rect(30, 25, 1220, 82), border=UI_DREAM, fill=(17, 30, 57), radius=16)
+        title = fonts["title"].render("MEMORY EXCHANGE", True, UI_TEXT)
+        surface.blit(title, (58, 39))
+        cash = pygame.Rect(946, 33, 274, 66)
+        pygame.draw.rect(surface, (26, 55, 73), cash, border_radius=10)
+        pygame.draw.rect(surface, UI_HOPE, cash, 1, border_radius=10)
+        draw_centered_text(surface, fonts["small"], "AVAILABLE FUNDS", UI_MUTED, (cash.centerx, cash.y + 16))
+        draw_centered_text(surface, fonts["body"], f"${int(context.player.money):,}", UI_HOPE, (cash.centerx, cash.y + 45))
 
-        title = fonts["title"].render("MARKET", True, (255, 255, 255))
-        surface.blit(title, (40, 20))
-
-        money = fonts["body"].render(f"Money: {int(context.player.money)}", True, (255, 255, 255))
-        surface.blit(money, (40, 100))
-
-        positive_title = fonts["body"].render("POSITIVE EFFECTS  (buy costs / sell earns)", True, (120, 255, 170))
-        surface.blit(positive_title, (40, 150))
-        for idx, stock_name in enumerate(self.stock_names[:2]):
+        draw_section_label(surface, fonts["small"], "FRAGMENT PORTFOLIO", (54, 134))
+        effect_text = {
+            "Hope": "Movement speed bonus",
+            "Dream": "Shield and faster fire rate",
+            "Fear": "Earn now, but enemies grow stronger",
+        }
+        colors = {"Hope": UI_HOPE, "Dream": UI_DREAM, "Fear": UI_FEAR}
+        for idx, stock_name in enumerate(self.stock_names):
             data = context.market.stocks[stock_name]
-            owned = context.player.fragments.get(stock_name, 0)
-            marker = ">" if idx == self.selected else " "
-            line = f"{marker} {stock_name}: Price {data['price']:,.2f} | Owned {owned}"
-            color = (255, 230, 120) if idx == self.selected else (220, 220, 220)
-            text = fonts["body"].render(line, True, color)
-            surface.blit(text, (40, 195 + idx * 50))
+            selected = idx == self.selected
+            accent = colors[stock_name]
+            card = pygame.Rect(48, 174 + idx * 128, 585, 108)
+            draw_panel(surface, card, border=accent if selected else (55, 75, 112), fill=(31, 48, 79) if selected else UI_PANEL, radius=14)
+            icon = pygame.Rect(card.x + 18, card.y + 23, 62, 62)
+            pygame.draw.rect(surface, accent, icon, border_radius=13)
+            draw_centered_text(surface, fonts["body"], stock_name[0], UI_BG, icon.center)
+            name = fonts["body"].render(stock_name.upper(), True, UI_TEXT)
+            surface.blit(name, (card.x + 98, card.y + 18))
+            detail = fonts["small"].render(effect_text[stock_name], True, UI_MUTED)
+            surface.blit(detail, (card.x + 98, card.y + 52))
+            price = fonts["body"].render(f"${data['price']:,.0f}", True, accent)
+            surface.blit(price, (card.right - price.get_width() - 24, card.y + 18))
+            owned = fonts["small"].render(f"OWNED  {context.player.fragments.get(stock_name, 0)}", True, UI_TEXT)
+            surface.blit(owned, (card.right - owned.get_width() - 24, card.y + 57))
 
-        negative_title = fonts["body"].render("NEGATIVE EFFECTS  (buy earns / sell costs)", True, (255, 115, 115))
-        surface.blit(negative_title, (40, 345))
-        fear = context.market.stocks["Fear"]
-        fear_owned = context.player.fragments.get("Fear", 0)
-        marker = ">" if self.selected == 2 else " "
-        color = (255, 230, 120) if self.selected == 2 else (220, 220, 220)
-        fear_line = f"{marker} Fear: Price {fear['price']:,.2f} | Owned {fear_owned}"
-        surface.blit(fonts["body"].render(fear_line, True, color), (40, 390))
-
-        draw_price_chart(surface, context, pygame.Rect(720, 150, 510, 430))
-
-        guide = fonts["small"].render("UP/DOWN 選擇 | B 買入 | S 賣出 1 個碎片 | ESC 返回戰鬥", True, (200, 200, 200))
-        surface.blit(guide, (40, 660))
+        draw_price_chart(surface, context, pygame.Rect(668, 134, 552, 458))
+        draw_panel(surface, pygame.Rect(48, 584, 1172, 90), border=(55, 75, 112), fill=(14, 23, 40), radius=14)
+        draw_section_label(surface, fonts["small"], "TRADE CONTROLS", (72, 600))
+        draw_centered_text(surface, fonts["small"], "UP / DOWN  SELECT     B  BUY     S  SELL     ESC  RETURN TO COMBAT", UI_TEXT, (634, 645))
 
 
 class NewsScene(Scene):
@@ -392,8 +500,7 @@ class NewsScene(Scene):
     def draw(self, surface) -> None:
         context = self.manager.context
         fonts = context.fonts
-        surface.fill((15, 12, 24))
-        title = fonts["title"].render("BREAKING NEWS", True, (255, 100, 100))
+        draw_screen_background(surface, UI_FEAR)
         stories = {
             "covid": (
                 "The continued spread of COVID-19",
@@ -412,15 +519,17 @@ class NewsScene(Scene):
             ),
         }
         story = stories[self.news_kind]
-        headline_1 = fonts["body"].render(story[0], True, (255, 235, 170))
-        headline_2 = fonts["body"].render(story[1], True, (255, 235, 170))
-        result = fonts["body"].render(story[2], True, (220, 220, 255))
-        tip = fonts["small"].render("Press ENTER, SPACE, or ESC to resume combat", True, (200, 200, 200))
-        surface.blit(title, (SCREEN_WIDTH // 2 - title.get_width() // 2, 220))
-        surface.blit(headline_1, (SCREEN_WIDTH // 2 - headline_1.get_width() // 2, 300))
-        surface.blit(headline_2, (SCREEN_WIDTH // 2 - headline_2.get_width() // 2, 340))
-        surface.blit(result, (SCREEN_WIDTH // 2 - result.get_width() // 2, 395))
-        surface.blit(tip, (SCREEN_WIDTH // 2 - tip.get_width() // 2, 475))
+        card = pygame.Rect(65, 135, 1150, 456)
+        draw_panel(surface, card, border=UI_FEAR, fill=(47, 22, 42), radius=22)
+        draw_centered_text(surface, fonts["small"], "BREAKING NEWS  //  MARKET ALERT", UI_FEAR, (card.centerx, card.y + 43))
+        draw_centered_text(surface, fonts["title"], "HEADLINE", UI_TEXT, (card.centerx, card.y + 106))
+        story_top = card.y + 158
+        story_top += draw_centered_wrapped_text(surface, fonts["body"], story[0], UI_GOLD, card.centerx, story_top, card.width - 72) + 12
+        story_top += draw_centered_wrapped_text(surface, fonts["body"], story[1], UI_GOLD, card.centerx, story_top, card.width - 72) + 18
+        divider_y = story_top
+        pygame.draw.line(surface, UI_BORDER, (card.x + 80, divider_y), (card.right - 80, divider_y), 1)
+        draw_centered_wrapped_text(surface, fonts["body"], story[2], UI_TEXT, card.centerx, divider_y + 22, card.width - 72)
+        draw_centered_text(surface, fonts["small"], "ENTER / SPACE / ESC  •  RETURN TO COMBAT", UI_MUTED, (card.centerx, card.bottom - 39))
 
 class PenaltyScene(Scene):
     name = "PENALTY"
@@ -439,24 +548,41 @@ class PenaltyScene(Scene):
             elif event.key==pygame.K_DOWN:self.selected=min(2,self.selected+1)
             elif event.key==pygame.K_RETURN: level.resolve_reward(self.manager.context.player,self.selected)
     def draw(self,surface):
-        f=self.manager.context.fonts; level=self.manager.context.level_manager.current_level; surface.fill((12,28,45))
-        title=f['title'].render('Penalty Shootout',True,(255,230,100)); surface.blit(title,(390,180))
+        f=self.manager.context.fonts; level=self.manager.context.level_manager.current_level
+        draw_screen_background(surface, UI_HOPE)
+        card = pygame.Rect(238, 150, 804, 430)
+        draw_panel(surface, card, border=UI_GOLD, fill=(24, 51, 56), radius=22)
+        draw_centered_text(surface, f['small'], 'WORLD CUP  //  BONUS EVENT', UI_HOPE, (card.centerx, card.y + 40))
+        draw_centered_text(surface, f['title'], 'PENALTY SHOOTOUT', UI_GOLD, (card.centerx, card.y + 94))
         if level.reward_message:
-            text=f['title'].render(level.reward_message,True,(255,235,60)); surface.blit(text,(640-text.get_width()//2,330)); tip=f['small'].render('Press ENTER to continue',True,(240,240,255));surface.blit(tip,(640-tip.get_width()//2,410)); return
+            draw_centered_text(surface, f['title'], level.reward_message, UI_GOLD, (card.centerx, card.y + 192))
+            draw_centered_text(surface, f['small'], 'PRESS ENTER TO CONTINUE', UI_MUTED, (card.centerx, card.y + 265))
+            return
         if level.pending_event:
-            c,h,fr=level.pending_event; text=f['body'].render(f'Random Event: {c}% Hope +{h} / {100-c}% Fear +{fr}',True,(240,240,255)); surface.blit(text,(250,290)); tip=f['body'].render('YES (Y)     NO (N)',True,(255,220,140));surface.blit(tip,(430,360))
+            c,h,fr=level.pending_event
+            draw_centered_text(surface, f['body'], 'RANDOM EVENT', UI_TEXT, (card.centerx, card.y + 165))
+            draw_centered_text(surface, f['body'], f'{c}%  HOPE +{h}       {100-c}%  FEAR +{fr}', UI_TEXT, (card.centerx, card.y + 213))
+            draw_centered_text(surface, f['small'], 'Y / ENTER  ACCEPT       N / ESC  DECLINE', UI_GOLD, (card.centerx, card.y + 285))
         else:
             for i,t in enumerate(('Hope +3','Dream +3','Fear -3')):
-                x=f['body'].render(('> ' if i==self.selected else '  ')+t,True,(255,230,110) if i==self.selected else (240,240,255));surface.blit(x,(500,280+i*50))
+                selected = i == self.selected
+                choice = pygame.Rect(card.x + 172, card.y + 145 + i * 64, 460, 50)
+                draw_panel(surface, choice, border=UI_GOLD if selected else (55, 75, 112), fill=(51, 57, 48) if selected else UI_PANEL, radius=10)
+                draw_centered_text(surface, f['body'], t, UI_GOLD if selected else UI_TEXT, choice.center)
+            draw_centered_text(surface, f['small'], 'UP / DOWN  SELECT       ENTER  CONFIRM', UI_MUTED, (card.centerx, card.y + 365))
 
 class FeeNoticeScene(Scene):
     name = "FEE_NOTICE"
     def handle_event(self,event):
         if event.type==pygame.KEYDOWN and event.key in (pygame.K_RETURN,pygame.K_ESCAPE): self.manager.change_scene("MARKET")
     def draw(self,surface):
-        surface.fill((20,20,32)); f=self.manager.context.fonts
-        for text,y in (("You're too fond of stock trading.",290),("There's now a 5% transaction fee.",340),("Press ENTER",420)):
-            t=f['body'].render(text,True,(255,220,130)); surface.blit(t,(SCREEN_WIDTH//2-t.get_width()//2,y))
+        draw_screen_background(surface, UI_GOLD); f=self.manager.context.fonts
+        card = pygame.Rect(300, 230, 680, 260)
+        draw_panel(surface, card, border=UI_GOLD, fill=(49, 40, 25), radius=20)
+        draw_centered_text(surface, f['title'], 'TRADING NOTICE', UI_GOLD, (card.centerx, card.y + 62))
+        draw_centered_text(surface, f['body'], "You're too fond of stock trading.", UI_TEXT, (card.centerx, card.y + 124))
+        draw_centered_text(surface, f['body'], "A 5% transaction fee now applies.", UI_TEXT, (card.centerx, card.y + 161))
+        draw_centered_text(surface, f['small'], 'PRESS ENTER TO CONTINUE', UI_MUTED, (card.centerx, card.y + 215))
 
 
 class TransactionLimitScene(Scene):
@@ -467,16 +593,13 @@ class TransactionLimitScene(Scene):
             self.manager.change_scene("MARKET")
 
     def draw(self, surface) -> None:
-        surface.fill((20, 20, 32))
+        draw_screen_background(surface, UI_FEAR)
         fonts = self.manager.context.fonts
-        message = fonts["body"].render(
-            "You have reached your transaction limit", True, (255, 220, 130)
-        )
-        tip = fonts["small"].render(
-            "Press ENTER to return to the market", True, (240, 240, 255)
-        )
-        surface.blit(message, (SCREEN_WIDTH // 2 - message.get_width() // 2, 320))
-        surface.blit(tip, (SCREEN_WIDTH // 2 - tip.get_width() // 2, 390))
+        card = pygame.Rect(300, 245, 680, 230)
+        draw_panel(surface, card, border=UI_FEAR, fill=(50, 25, 38), radius=20)
+        draw_centered_text(surface, fonts["title"], "LIMIT REACHED", UI_FEAR, (card.centerx, card.y + 64))
+        draw_centered_text(surface, fonts["body"], "You have reached your transaction limit.", UI_TEXT, (card.centerx, card.y + 122))
+        draw_centered_text(surface, fonts["small"], "PRESS ENTER TO RETURN TO THE MARKET", UI_MUTED, (card.centerx, card.y + 175))
 
 
 class GameOverScene(Scene):
@@ -491,11 +614,12 @@ class GameOverScene(Scene):
 
     def draw(self, surface) -> None:
         fonts = self.manager.context.fonts
-        surface.fill((8, 8, 12))
-        title = fonts["title"].render("GAME OVER", True, (255, 120, 120))
-        tip = fonts["body"].render("Press ENTER to return MENU", True, (235, 235, 235))
-        surface.blit(title, (SCREEN_WIDTH // 2 - title.get_width() // 2, 280))
-        surface.blit(tip, (SCREEN_WIDTH // 2 - tip.get_width() // 2, 350))
+        draw_screen_background(surface, UI_FEAR)
+        card = pygame.Rect(310, 240, 660, 240)
+        draw_panel(surface, card, border=UI_FEAR, fill=(48, 20, 33), radius=22)
+        draw_centered_text(surface, fonts["title"], "GAME OVER", UI_FEAR, (card.centerx, card.y + 78))
+        draw_centered_text(surface, fonts["body"], "Your remaining capital has reached zero.", UI_TEXT, (card.centerx, card.y + 135))
+        draw_centered_text(surface, fonts["small"], "PRESS ENTER TO RETURN TO MENU", UI_MUTED, (card.centerx, card.y + 190))
 
 
 class EndingScene(Scene):
@@ -511,42 +635,57 @@ class EndingScene(Scene):
 
     def draw(self, surface) -> None:
         context = self.manager.context
-        surface.fill((8, 8, 14))
+        draw_screen_background(surface, UI_DREAM)
+        card = pygame.Rect(190, 210, 900, 300)
+        accent = UI_FEAR if context.ending_manager.outcome == "ai_victory" else UI_DREAM
+        fill = (49, 21, 36) if context.ending_manager.outcome == "ai_victory" else (21, 37, 67)
+        draw_panel(surface, card, border=accent, fill=fill, radius=22)
         if context.ending_manager.outcome == "ai_victory":
-            title = context.fonts["title"].render("You have become a servant of AI.", True, (255, 85, 95))
-            subtitle = context.fonts["body"].render("Looser !", True, (255, 155, 160))
+            title_text, subtitle_text = "AI VICTORY", "You have become a servant of AI."
         else:
-            title = context.fonts["title"].render("MEMORY CRASH COMPLETE", True, (125, 230, 255))
-            subtitle = context.fonts["body"].render("The Dream Assistant returned to blue.", True, (220, 245, 255))
-        tip = context.fonts["small"].render("Press ENTER to return MENU", True, (220, 220, 230))
-        surface.blit(title, (SCREEN_WIDTH // 2 - title.get_width() // 2, 275))
-        surface.blit(subtitle, (SCREEN_WIDTH // 2 - subtitle.get_width() // 2, 350))
-        surface.blit(tip, (SCREEN_WIDTH // 2 - tip.get_width() // 2, 425))
+            title_text, subtitle_text = "MEMORY CRASH COMPLETE", "The Dream Assistant returned to blue."
+        draw_centered_text(surface, context.fonts["small"], "FINAL MARKET REPORT", accent, (card.centerx, card.y + 48))
+        draw_centered_text(surface, context.fonts["title"], title_text, accent, (card.centerx, card.y + 120))
+        draw_centered_text(surface, context.fonts["body"], subtitle_text, UI_TEXT, (card.centerx, card.y + 183))
+        draw_centered_text(surface, context.fonts["small"], "ENTER / SPACE / ESC  •  RETURN TO MENU", UI_MUTED, (card.centerx, card.y + 244))
 
 
 def draw_hud(surface, context: GameContext) -> None:
     fonts = context.fonts
     player = context.player
     level = context.level_manager.current_level
+    left = pygame.Rect(16, 14, 286, 154 if level.world_cup else 134)
+    draw_panel(surface, left, border=(64, 92, 144), fill=(13, 24, 43), radius=12)
+    title = fonts["small"].render(f"LEVEL {level.index}  //  {level.name.split('-')[-1].strip().upper()}", True, UI_ACCENT)
+    surface.blit(title, (left.x + 14, left.y + 12))
+    money = fonts["body"].render(f"${int(player.money):,}", True, UI_TEXT)
+    surface.blit(money, (left.x + 14, left.y + 38))
+    assets = (("HOPE", player.fragments["Hope"], UI_HOPE), ("DREAM", player.fragments["Dream"], UI_DREAM), ("FEAR", player.fragments["Fear"], UI_FEAR))
+    for index, (name, amount, color) in enumerate(assets):
+        x = left.x + 16 + index * 88
+        pygame.draw.circle(surface, color, (x + 6, left.y + 94), 5)
+        text = fonts["small"].render(f"{name[0]} {amount}", True, UI_TEXT)
+        surface.blit(text, (x + 16, left.y + 84))
+    if level.world_cup:
+        footballs = player.fragments["Hope"] + player.fragments["Dream"]
+        text = fonts["small"].render(f"FOOTBALLS AVAILABLE  {footballs}", True, UI_GOLD)
+        surface.blit(text, (left.x + 16, left.y + 119))
+    elif level.is_dream_factory:
+        text = fonts["small"].render(f"WAVE {level.wave_index} / 6", True, UI_GOLD)
+        surface.blit(text, (left.x + 16, left.y + 112))
 
-    left_lines = [
-        f"Money: {int(player.money)}",
-        f"Level: {level.index}",
-        f"hope_owned: {player.fragments['Hope']}",
-        f"dream_owned: {player.fragments['Dream']}",
-        f"fear_owned: {player.fragments['Fear']}",
-    ]
-    if level.world_cup: left_lines.append(f"Remaining Football: {player.fragments['Hope'] + player.fragments['Dream']}")
-    for idx, line in enumerate(left_lines):
-        txt = fonts["body"].render(line, True, (240, 240, 255))
-        surface.blit(txt, (16, 16 + idx * 30))
-
-    x = SCREEN_WIDTH - 260
-    y = 16
-    for stock_name, data in context.market.stocks.items():
-        txt = fonts["small"].render(f"{stock_name}: {data['price']:,.2f}", True, (255, 255, 255))
-        surface.blit(txt, (x, y))
-        y += 24
+    right = pygame.Rect(SCREEN_WIDTH - 250, 14, 234, 113)
+    draw_panel(surface, right, border=(64, 92, 144), fill=(13, 24, 43), radius=12)
+    label = fonts["small"].render("LIVE EXCHANGE", True, UI_MUTED)
+    surface.blit(label, (right.x + 14, right.y + 11))
+    colors = {"Hope": UI_HOPE, "Dream": UI_DREAM, "Fear": UI_FEAR}
+    for index, (stock_name, data) in enumerate(context.market.stocks.items()):
+        y = right.y + 38 + index * 22
+        pygame.draw.circle(surface, colors[stock_name], (right.x + 18, y + 6), 4)
+        name = fonts["small"].render(stock_name.upper(), True, UI_TEXT)
+        price = fonts["small"].render(f"${data['price']:,.0f}", True, colors[stock_name])
+        surface.blit(name, (right.x + 30, y))
+        surface.blit(price, (right.right - price.get_width() - 13, y))
 
 
 def draw_player_effects(surface, player: Player) -> None:
@@ -578,25 +717,27 @@ def draw_player_effects(surface, player: Player) -> None:
 
 def draw_money_health_bar(surface, player: Player) -> None:
     """Draw the player's money-backed health bar above their head."""
-    width, height = 48, 7
+    width, height = 58, 8
     x = int(player.x - width / 2)
     y = int(player.y - player.radius - 16)
-    pygame.draw.rect(surface, (75, 20, 20), (x, y, width, height))
+    pygame.draw.rect(surface, (8, 12, 22), (x - 2, y - 2, width + 4, height + 4), border_radius=4)
+    pygame.draw.rect(surface, (75, 20, 28), (x, y, width, height), border_radius=3)
     fill_width = int(width * player.money_health_ratio)
     if fill_width:
-        pygame.draw.rect(surface, (230, 55, 55), (x, y, fill_width, height))
-    pygame.draw.rect(surface, (255, 225, 225), (x, y, width, height), 1)
+        pygame.draw.rect(surface, (238, 75, 88), (x, y, fill_width, height), border_radius=3)
+    pygame.draw.rect(surface, (255, 225, 225), (x, y, width, height), 1, border_radius=3)
 
 
 def draw_price_chart(surface, context: GameContext, rect: pygame.Rect) -> None:
     """Plot the last five seconds of live fragment prices in the market."""
-    pygame.draw.rect(surface, (18, 24, 40), rect)
-    pygame.draw.rect(surface, (95, 120, 175), rect, 2)
-    title = context.fonts["body"].render("PRICE HISTORY (last 5 seconds)", True, (220, 230, 255))
-    surface.blit(title, (rect.x + 12, rect.y + 10))
+    draw_panel(surface, rect, border=UI_DREAM, fill=(15, 26, 49), radius=14)
+    title = context.fonts["body"].render("LIVE PRICE HISTORY", True, UI_TEXT)
+    subtitle = context.fonts["small"].render("LAST 5 SECONDS", True, UI_MUTED)
+    surface.blit(title, (rect.x + 18, rect.y + 14))
+    surface.blit(subtitle, (rect.right - subtitle.get_width() - 18, rect.y + 20))
 
-    plot = pygame.Rect(rect.x + 52, rect.y + 60, rect.width - 70, rect.height - 100)
-    pygame.draw.rect(surface, (30, 40, 62), plot)
+    plot = pygame.Rect(rect.x + 54, rect.y + 70, rect.width - 76, rect.height - 120)
+    pygame.draw.rect(surface, (21, 36, 64), plot, border_radius=6)
     for offset in range(1, 5):
         x = plot.x + plot.width * offset // 5
         pygame.draw.line(surface, (55, 68, 95), (x, plot.y), (x, plot.bottom), 1)

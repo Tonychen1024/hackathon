@@ -747,8 +747,12 @@ class Level:
             overlay = pygame.Surface(surface.get_size(), pygame.SRCALPHA)
             pygame.draw.rect(overlay, (210, 0, 20, alpha), overlay.get_rect(), 4)
             surface.blit(overlay, (0, 0))
-        label = fonts["body"].render(self.name, True, (240, 240, 255))
-        surface.blit(label, (20, 18))
+        # The combat HUD already identifies Dream Factory.  Keeping a second
+        # title beneath that panel caused the text to peek out from its edge.
+        # Other level titles start after the HUD instead of underneath it.
+        if not self.is_dream_factory:
+            label = fonts["body"].render(self.name, True, (240, 240, 255))
+            surface.blit(label, (322, 18))
         if self.is_dream_factory:
             wave = fonts["small"].render(f"Wave {self.wave_index} / 6", True, (190, 230, 255))
             surface.blit(wave, (20, 52))
