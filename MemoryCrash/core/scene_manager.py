@@ -16,6 +16,7 @@ from player.player import Player
 # This control contains a long label, so keep enough horizontal breathing room
 # between it and the exchange HUD on the right.
 LEVEL3_FAST_FORWARD_BUTTON = pygame.Rect(SCREEN_WIDTH - 630, 14, 360, 42)
+COMBAT_PAUSE_BUTTON = pygame.Rect(322, 14, 160, 42)
 
 UI_BG = (9, 13, 25)
 UI_PANEL = (19, 28, 48)
@@ -226,12 +227,14 @@ class CombatScene(Scene):
     def __init__(self, manager: "SceneManager") -> None:
         super().__init__(manager)
         self.show_clear = False
+        self.is_paused = False
 
     def enter(self, **kwargs) -> None:
         if kwargs.get("resume", False):
             self.manager.context.player.grant_invulnerability()
             return
         self.show_clear = False
+        self.is_paused = False
         context = self.manager.context
         context.level_manager.current_level.enter()
         level = context.level_manager.current_level
@@ -244,6 +247,11 @@ class CombatScene(Scene):
 
     def handle_event(self, event) -> None:
         if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+            if COMBAT_PAUSE_BUTTON.collidepoint(event.pos):
+                self.is_paused = not self.is_paused
+                return
+            if self.is_paused:
+                return
             context = self.manager.context
             level = context.level_manager.current_level
             if (
@@ -256,7 +264,7 @@ class CombatScene(Scene):
                 context.market.trigger_ai_revolt()
             return
 
-        if event.type != pygame.KEYDOWN:
+        if self.is_paused or event.type != pygame.KEYDOWN:
             return
         if event.key == pygame.K_TAB:
             self.manager.last_combat_scene = self.combat_scene_name
@@ -280,6 +288,8 @@ class CombatScene(Scene):
                     self.manager.change_scene("ENDING")
 
     def update(self, dt: float) -> None:
+        if self.is_paused:
+            return
         context = self.manager.context
         level = context.level_manager.current_level
         context.player.update_invulnerability(dt)
@@ -354,6 +364,11 @@ class CombatScene(Scene):
         level.draw_combat_effects(surface)
 
         draw_hud(surface, context)
+
+        pause_label = "START" if self.is_paused else "PAUSE"
+        pause_accent = UI_HOPE if self.is_paused else UI_GOLD
+        draw_panel(surface, COMBAT_PAUSE_BUTTON, border=pause_accent, fill=(28, 57, 55) if self.is_paused else (58, 47, 28), radius=8)
+        draw_centered_text(surface, context.fonts["small"], pause_label, UI_TEXT, COMBAT_PAUSE_BUTTON.center)
 
         if (
             level.is_dream_factory
@@ -654,38 +669,42 @@ def draw_hud(surface, context: GameContext) -> None:
     fonts = context.fonts
     player = context.player
     level = context.level_manager.current_level
+    # Keep combat information readable while letting the arena remain visible.
+    hud_surface = pygame.Surface(surface.get_size(), pygame.SRCALPHA)
     left = pygame.Rect(16, 14, 286, 154 if level.world_cup else 134)
-    draw_panel(surface, left, border=(64, 92, 144), fill=(13, 24, 43), radius=12)
+    draw_panel(hud_surface, left, border=(64, 92, 144), fill=(13, 24, 43), radius=12)
     title = fonts["small"].render(f"LEVEL {level.index}  //  {level.name.split('-')[-1].strip().upper()}", True, UI_ACCENT)
-    surface.blit(title, (left.x + 14, left.y + 12))
+    hud_surface.blit(title, (left.x + 14, left.y + 12))
     money = fonts["body"].render(f"${int(player.money):,}", True, UI_TEXT)
-    surface.blit(money, (left.x + 14, left.y + 38))
+    hud_surface.blit(money, (left.x + 14, left.y + 38))
     assets = (("HOPE", player.fragments["Hope"], UI_HOPE), ("DREAM", player.fragments["Dream"], UI_DREAM), ("FEAR", player.fragments["Fear"], UI_FEAR))
     for index, (name, amount, color) in enumerate(assets):
         x = left.x + 16 + index * 88
-        pygame.draw.circle(surface, color, (x + 6, left.y + 94), 5)
+        pygame.draw.circle(hud_surface, color, (x + 6, left.y + 94), 5)
         text = fonts["small"].render(f"{name[0]} {amount}", True, UI_TEXT)
-        surface.blit(text, (x + 16, left.y + 84))
+        hud_surface.blit(text, (x + 16, left.y + 84))
     if level.world_cup:
         footballs = player.fragments["Hope"] + player.fragments["Dream"]
         text = fonts["small"].render(f"FOOTBALLS AVAILABLE  {footballs}", True, UI_GOLD)
-        surface.blit(text, (left.x + 16, left.y + 119))
+        hud_surface.blit(text, (left.x + 16, left.y + 119))
     elif level.is_dream_factory:
         text = fonts["small"].render(f"WAVE {level.wave_index} / 6", True, UI_GOLD)
-        surface.blit(text, (left.x + 16, left.y + 112))
+        hud_surface.blit(text, (left.x + 16, left.y + 112))
 
     right = pygame.Rect(SCREEN_WIDTH - 250, 14, 234, 113)
-    draw_panel(surface, right, border=(64, 92, 144), fill=(13, 24, 43), radius=12)
+    draw_panel(hud_surface, right, border=(64, 92, 144), fill=(13, 24, 43), radius=12)
     label = fonts["small"].render("LIVE EXCHANGE", True, UI_MUTED)
-    surface.blit(label, (right.x + 14, right.y + 11))
+    hud_surface.blit(label, (right.x + 14, right.y + 11))
     colors = {"Hope": UI_HOPE, "Dream": UI_DREAM, "Fear": UI_FEAR}
     for index, (stock_name, data) in enumerate(context.market.stocks.items()):
         y = right.y + 38 + index * 22
-        pygame.draw.circle(surface, colors[stock_name], (right.x + 18, y + 6), 4)
+        pygame.draw.circle(hud_surface, colors[stock_name], (right.x + 18, y + 6), 4)
         name = fonts["small"].render(stock_name.upper(), True, UI_TEXT)
         price = fonts["small"].render(f"${data['price']:,.0f}", True, colors[stock_name])
-        surface.blit(name, (right.x + 30, y))
-        surface.blit(price, (right.right - price.get_width() - 13, y))
+        hud_surface.blit(name, (right.x + 30, y))
+        hud_surface.blit(price, (right.right - price.get_width() - 13, y))
+    hud_surface.set_alpha(165)
+    surface.blit(hud_surface, (0, 0))
 
 
 def draw_player_effects(surface, player: Player) -> None:

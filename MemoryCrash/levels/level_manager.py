@@ -752,7 +752,7 @@ class Level:
         # Other level titles start after the HUD instead of underneath it.
         if not self.is_dream_factory:
             label = fonts["body"].render(self.name, True, (240, 240, 255))
-            surface.blit(label, (322, 18))
+            surface.blit(label, (500, 18))
         if self.is_dream_factory:
             wave = fonts["small"].render(f"Wave {self.wave_index} / 6", True, (190, 230, 255))
             surface.blit(wave, (20, 52))
