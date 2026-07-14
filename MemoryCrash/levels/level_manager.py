@@ -230,6 +230,45 @@ class Level:
             self.cleared = self.kills >= self.enemy_target and len(self.enemies) == 0
         return self.cleared
 
+    @staticmethod
+    def draw_football_field(surface) -> None:
+        """Render Level 2 as a full football pitch."""
+        width, height = surface.get_size()
+        surface.fill((37, 118, 62))
+        stripe_width = max(1, width // 12)
+        for index, x in enumerate(range(0, width, stripe_width)):
+            if index % 2 == 0:
+                pygame.draw.rect(surface, (42, 132, 69), (x, 0, stripe_width, height))
+
+        field = pygame.Rect(42, 72, width - 84, height - 112)
+        line_color = (240, 245, 230)
+        line_width = 3
+        pygame.draw.rect(surface, line_color, field, line_width)
+
+        center_x, center_y = field.center
+        pygame.draw.line(surface, line_color, (center_x, field.top), (center_x, field.bottom), line_width)
+        pygame.draw.circle(surface, line_color, (center_x, center_y), 82, line_width)
+        pygame.draw.circle(surface, line_color, (center_x, center_y), 4)
+
+        box_height = 300
+        box_top = center_y - box_height // 2
+        left_box = pygame.Rect(field.left, box_top, 145, box_height)
+        right_box = pygame.Rect(field.right - 145, box_top, 145, box_height)
+        pygame.draw.rect(surface, line_color, left_box, line_width)
+        pygame.draw.rect(surface, line_color, right_box, line_width)
+
+        small_box_height = 150
+        small_box_top = center_y - small_box_height // 2
+        pygame.draw.rect(surface, line_color, (field.left, small_box_top, 58, small_box_height), line_width)
+        pygame.draw.rect(surface, line_color, (field.right - 58, small_box_top, 58, small_box_height), line_width)
+        pygame.draw.circle(surface, line_color, (field.left + 100, center_y), 4)
+        pygame.draw.circle(surface, line_color, (field.right - 100, center_y), 4)
+
+        goal_height = 92
+        goal_top = center_y - goal_height // 2
+        pygame.draw.rect(surface, line_color, (field.left - 18, goal_top, 18, goal_height), 2)
+        pygame.draw.rect(surface, line_color, (field.right, goal_top, 18, goal_height), 2)
+
     def draw(self, surface, fonts, fear_price: float = 1000.0) -> None:
         color_bank = {
             1: (20, 28, 48),
@@ -238,11 +277,13 @@ class Level:
             4: (50, 28, 30),
             5: (18, 18, 18),
         }
-        surface.fill(color_bank.get(self.index, (20, 20, 24)))
-
-        for line_y in range(80, 720, 80):
-            pygame_color = (50, 60, 90) if self.index < 4 else (80, 40, 40)
-            pygame.draw.line(surface, pygame_color, (0, line_y), (1280, line_y), 1)
+        if self.world_cup:
+            self.draw_football_field(surface)
+        else:
+            surface.fill(color_bank.get(self.index, (20, 20, 24)))
+            for line_y in range(80, 720, 80):
+                pygame_color = (50, 60, 90) if self.index < 4 else (80, 40, 40)
+                pygame.draw.line(surface, pygame_color, (0, line_y), (1280, line_y), 1)
 
         glow_layer = pygame.Surface(surface.get_size(), pygame.SRCALPHA)
         for enemy in self.enemies:

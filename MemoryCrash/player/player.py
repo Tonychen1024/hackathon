@@ -6,7 +6,13 @@ from dataclasses import dataclass, field
 import math
 import pygame
 
-from config import PLAYER_BASE_DAMAGE, PLAYER_BASE_HP, PLAYER_BASE_SPEED, PLAYER_START_MONEY
+from config import (
+    PLAYER_BASE_DAMAGE,
+    PLAYER_BASE_HP,
+    PLAYER_BASE_SPEED,
+    PLAYER_MONEY_HEALTH_MAX,
+    PLAYER_START_MONEY,
+)
 
 
 @dataclass
@@ -37,7 +43,7 @@ class Player:
     # Fragments are the player's tradable resources.  Keep the three keys
     # present so the HUD and market never need to special-case an empty type.
     fragments: dict[str, int] = field(
-        default_factory=lambda: {"Hope": 3, "Dream": 3, "Fear": 0}
+        default_factory=lambda: {"Hope": 0, "Dream": 0, "Fear": 0}
     )
     x: float = 640
     y: float = 360
@@ -49,6 +55,7 @@ class Player:
     shield_max: float = 0.0
     trail: list[tuple[float, float]] = field(default_factory=list)
     trail_intensity: float = 0.0
+    invulnerability_timer: float = 0.0
 
     def reset_position(self, x: float, y: float) -> None:
         self.x = x
@@ -63,13 +70,27 @@ class Player:
         self.speed = PLAYER_BASE_SPEED
         self.money = PLAYER_START_MONEY
         self.inventory.clear()
-        self.fragments = {"Hope": 3, "Dream": 3, "Fear": 0}
+        self.fragments = {"Hope": 0, "Dream": 0, "Fear": 0}
         self.shield = 0.0
         self.shield_max = 0.0
         self.trail_intensity = 0.0
+        self.invulnerability_timer = 0.0
         self.last_shot_at = -999.0
         self.bullets.clear()
         self.trail.clear()
+
+    def reset_for_level_two(self) -> None:
+        """Reset for Level 2 with its fixed Hope and Dream starting supply."""
+        fragments = self.fragments.copy()
+        self.reset_for_new_run()
+        fragments["Hope"] = 3
+        fragments["Dream"] = 3
+        self.fragments = fragments
+
+    @property
+    def money_health_ratio(self) -> float:
+        """Return the money-backed health bar ratio, capped at full health."""
+        return max(0.0, min(1.0, self.money / PLAYER_MONEY_HEALTH_MAX))
 
     def apply_fragment_effects(self, dream: int, hope: int, dt: float) -> None:
         """Apply bounded Dream shield and Hope movement bonuses."""
@@ -132,7 +153,20 @@ class Player:
         return False
 
     def take_damage(self, value: float) -> None:
+        if self.is_invulnerable:
+            return
         self.hp = max(0.0, self.hp - value)
+
+    def grant_invulnerability(self, duration: float = 1.0) -> None:
+        """Block all damage for a short period after returning to combat."""
+        self.invulnerability_timer = max(self.invulnerability_timer, duration)
+
+    def update_invulnerability(self, dt: float) -> None:
+        self.invulnerability_timer = max(0.0, self.invulnerability_timer - dt)
+
+    @property
+    def is_invulnerable(self) -> bool:
+        return self.invulnerability_timer > 0.0
 
     def update_bullets(self, dt: float, width: int, height: int) -> None:
         for bullet in self.bullets:
@@ -141,6 +175,8 @@ class Player:
 
     def lose_money(self, value: float) -> float:
         """Shield absorbs a variable money hit before the wallet is charged."""
+        if self.is_invulnerable:
+            return 0.0
         absorbed = min(self.shield, value)
         self.shield -= absorbed
         paid = min(self.money, value - absorbed)

@@ -90,10 +90,13 @@ class MenuScene(Scene):
             self.selected = min(len(levels) - 1, self.selected + 1)
         elif event.key == pygame.K_RETURN:
             context = self.manager.context
-            context.player.reset_for_new_run()
+            context.level_manager.set_level(self.selected)
+            if context.level_manager.current_level.world_cup:
+                context.player.reset_for_level_two()
+            else:
+                context.player.reset_for_new_run()
             context.market.reset()
-            self.manager.context.level_manager.set_level(self.selected)
-            next_scene = "LEVEL2_INTRO" if self.manager.context.level_manager.current_level.world_cup else ("BOSS" if self.manager.context.level_manager.current_level.is_boss else "LEVEL")
+            next_scene = "LEVEL2_INTRO" if context.level_manager.current_level.world_cup else ("BOSS" if context.level_manager.current_level.is_boss else "LEVEL")
             self.manager.change_scene(next_scene)
 
     def draw(self, surface) -> None:
@@ -122,6 +125,7 @@ class CombatScene(Scene):
 
     def enter(self, **kwargs) -> None:
         if kwargs.get("resume", False):
+            self.manager.context.player.grant_invulnerability()
             return
         self.show_clear = False
         context = self.manager.context
@@ -141,6 +145,10 @@ class CombatScene(Scene):
             level_manager = self.manager.context.level_manager
             if level_manager.current_level.cleared:
                 if level_manager.move_next():
+                    context = self.manager.context
+                    if level_manager.current_level.world_cup:
+                        context.player.reset_for_level_two()
+                        context.market.reset()
                     scene_name = "LEVEL2_INTRO" if level_manager.current_level.world_cup else ("BOSS" if level_manager.current_level.is_boss else "LEVEL")
                     self.manager.change_scene(scene_name)
                 else:
@@ -149,6 +157,7 @@ class CombatScene(Scene):
     def update(self, dt: float) -> None:
         context = self.manager.context
         level = context.level_manager.current_level
+        context.player.update_invulnerability(dt)
         context.market.update(dt)
         effects = context.market.effects(context.player)
         context.player.apply_fragment_effects(
@@ -200,6 +209,7 @@ class CombatScene(Scene):
 
         draw_player_effects(surface, context.player)
         pygame.draw.circle(surface, (70, 140, 255), (int(context.player.x), int(context.player.y)), context.player.radius)
+        draw_money_health_bar(surface, context.player)
         for bullet in context.player.bullets:
             pygame.draw.circle(surface, (245,245,245) if bullet.football else (250,230,90), (int(bullet.x), int(bullet.y)), bullet.radius)
 
@@ -454,6 +464,25 @@ def draw_player_effects(surface, player: Player) -> None:
         width = max(1, min(8, int(1 + player.shield_max / 20)))
         color = (255, 220, 40) if ratio > 0.2 else (140, 115, 30)
         pygame.draw.circle(surface, color, (int(player.x), int(player.y)), player.radius + 6, width)
+
+    if player.is_invulnerable:
+        shield_surface = pygame.Surface(surface.get_size(), pygame.SRCALPHA)
+        center = (int(player.x), int(player.y))
+        pygame.draw.circle(shield_surface, (255, 255, 255, 65), center, player.radius + 11)
+        pygame.draw.circle(shield_surface, (255, 255, 255, 230), center, player.radius + 11, 2)
+        surface.blit(shield_surface, (0, 0))
+
+
+def draw_money_health_bar(surface, player: Player) -> None:
+    """Draw the player's money-backed health bar above their head."""
+    width, height = 48, 7
+    x = int(player.x - width / 2)
+    y = int(player.y - player.radius - 16)
+    pygame.draw.rect(surface, (75, 20, 20), (x, y, width, height))
+    fill_width = int(width * player.money_health_ratio)
+    if fill_width:
+        pygame.draw.rect(surface, (230, 55, 55), (x, y, fill_width, height))
+    pygame.draw.rect(surface, (255, 225, 225), (x, y, width, height), 1)
 
 
 def draw_price_chart(surface, context: GameContext, rect: pygame.Rect) -> None:
