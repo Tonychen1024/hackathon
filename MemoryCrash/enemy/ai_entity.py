@@ -125,7 +125,7 @@ class RogueAIEnemy:
     radius = 16
     fire_interval = 1 / 3
 
-    def __init__(self, x: float, y: float, hp: float, damage: float) -> None:
+    def __init__(self, x: float, y: float, hp: float, damage: float, formation_offset: float = 0.0, use_formation: bool = False) -> None:
         self.x = x
         self.y = y
         self.base_hp = hp
@@ -135,6 +135,8 @@ class RogueAIEnemy:
         self.damage = damage
         self.speed = self.base_speed
         self.fear_count = 0
+        self.formation_offset = formation_offset
+        self.use_formation = use_formation
         self.last_shot_at = -999.0
         self.bullets: list[AIBullet] = []
 
@@ -156,16 +158,21 @@ class RogueAIEnemy:
 
     def update(self, dt: float, player, now: float, fear_count: int = 0) -> None:
         self.apply_fear_strength(fear_count)
-        dx, dy = player.x - self.x, player.y - self.y
+        target_x = player.x + self.formation_offset if self.use_formation else player.x
+        target_y = player.y - 165 if self.use_formation else player.y
+        dx, dy = target_x - self.x, target_y - self.y
         distance = max(1.0, math.hypot(dx, dy))
-        if distance > 150:
+        stop_distance = 12 if self.use_formation else 150
+        if distance > stop_distance:
             self.x += dx / distance * self.speed * dt
             self.y += dy / distance * self.speed * dt
         self.x = max(self.radius, min(SCREEN_WIDTH - self.radius, self.x))
         self.y = max(self.radius, min(SCREEN_HEIGHT - self.radius, self.y))
         if now - self.last_shot_at >= self.fire_interval:
             speed = 520 + fear_count * 30
-            self.bullets.append(AIBullet(self.x, self.y, dx / distance * speed, dy / distance * speed, self.damage, (255, 55, 65)))
+            shot_dx, shot_dy = player.x - self.x, player.y - self.y
+            shot_distance = max(1.0, math.hypot(shot_dx, shot_dy))
+            self.bullets.append(AIBullet(self.x, self.y, shot_dx / shot_distance * speed, shot_dy / shot_distance * speed, self.damage, (255, 55, 65), lifetime=4.0))
             self.last_shot_at = now
 
     def update_bullets(self, dt: float, player) -> None:

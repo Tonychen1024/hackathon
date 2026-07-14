@@ -170,15 +170,25 @@ class Level:
                 (random.randint(100, 1180), random.randint(110, 610))
                 for _ in range(counts[wave])
             ]
-        self.rogue_ais = [RogueAIEnemy(x, y, hp=5, damage=damage) for x, y in positions]
+        self.rogue_ais = [
+            RogueAIEnemy(
+                x,
+                y,
+                hp=5,
+                damage=damage,
+                formation_offset=(index - (counts[wave] - 1) / 2) * 82 if wave >= 5 else 0,
+                use_formation=wave >= 5,
+            )
+            for index, (x, y) in enumerate(positions)
+        ]
         self.level3_phase = "rogue"
 
     def make_rolling_enemy(self, wave: int) -> Enemy:
         # Each friendly-AI wave is visibly larger and hits harder than the last.
         hp, damage, speed, radius = {
-            1: (100, 8, 340, 15),
-            2: (135, 12, 375, 20),
-            3: (180, 16, 410, 25),
+            1: (100, 12, 355, 15),
+            2: (135, 18, 405, 20),
+            3: (180, 26, 455, 25),
         }[wave]
         enemy = Enemy(
             "Rolling Memory Error",
@@ -277,11 +287,7 @@ class Level:
             self.fear_drop_timer += dt
             while self.fear_drop_timer >= 2.0:
                 self.fear_drop_timer -= 2.0
-                self.fragments.append(
-                    MemoryFragment(
-                        random.randint(480, 800), random.randint(250, 470), "Fear"
-                    )
-                )
+                self.drop_dispersed_fear_fragment()
             fear_count = player.fragments["Fear"]
             self.assistant.follow(player, dt, fear_count)
             self.assistant.fire_at_nearest(self.enemies, now, fear_count)
@@ -330,6 +336,8 @@ class Level:
             if enemy.y <= enemy.radius or enemy.y >= SCREEN_HEIGHT - enemy.radius:
                 enemy.roll_vy *= -1
                 enemy.y = max(enemy.radius, min(SCREEN_HEIGHT - enemy.radius, enemy.y))
+            if self.assistant is not None:
+                self.bounce_assistant_from_enemy(self.assistant, enemy)
             dx, dy = player.x - enemy.x, player.y - enemy.y
             distance = max(1.0, math.hypot(dx, dy))
             if distance <= enemy.radius + player.radius:
@@ -339,6 +347,37 @@ class Level:
                 player.y += dy / distance * knockback
                 player.x = max(player.radius, min(SCREEN_WIDTH - player.radius, player.x))
                 player.y = max(player.radius, min(SCREEN_HEIGHT - player.radius, player.y))
+
+    def drop_dispersed_fear_fragment(self) -> None:
+        """Place each timed Fear fragment across the whole arena, not its centre."""
+        for _ in range(12):
+            x = random.randint(70, SCREEN_WIDTH - 70)
+            y = random.randint(110, SCREEN_HEIGHT - 60)
+            if all(
+                fragment.kind != "Fear" or math.hypot(fragment.x - x, fragment.y - y) >= 150
+                for fragment in self.fragments
+            ):
+                self.fragments.append(MemoryFragment(x, y, "Fear"))
+                return
+        self.fragments.append(
+            MemoryFragment(random.randint(70, SCREEN_WIDTH - 70), random.randint(110, SCREEN_HEIGHT - 60), "Fear")
+        )
+
+    @staticmethod
+    def bounce_assistant_from_enemy(assistant: DreamAssistant, enemy: Enemy) -> None:
+        """The assistant is invulnerable but is physically pushed by rolling enemies."""
+        dx, dy = assistant.x - enemy.x, assistant.y - enemy.y
+        distance = math.hypot(dx, dy)
+        minimum = assistant.radius + enemy.radius
+        if distance >= minimum:
+            return
+        if distance < 0.1:
+            dx, dy, distance = 1.0, 0.0, 1.0
+        push = minimum - distance + 16
+        assistant.x = max(assistant.radius, min(SCREEN_WIDTH - assistant.radius, assistant.x + dx / distance * push))
+        assistant.y = max(assistant.radius, min(SCREEN_HEIGHT - assistant.radius, assistant.y + dy / distance * push))
+        enemy.roll_vx *= -1
+        enemy.roll_vy *= -1
 
     def resolve_player_bullets(self, player) -> None:
         for bullet in player.bullets:

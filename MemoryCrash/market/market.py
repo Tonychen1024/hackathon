@@ -6,6 +6,10 @@ import random
 
 
 LEVEL1_TRANSACTION_LIMIT = 100
+AI_ADOPTION_DREAM_CAP = 30000.0
+AI_ADOPTION_FEAR_FLOOR = 100.0
+AI_REVOLT_DREAM_FLOOR = 100.0
+AI_REVOLT_FEAR_CAP = 30000.0
 
 
 class Market:
@@ -57,22 +61,30 @@ class Market:
 
             for name in ("Hope", "Dream"):
                 data = self.stocks[name]
+                if (
+                    name == "Dream"
+                    and (
+                        self.ai_market_state == "adoption" and data["price"] >= AI_ADOPTION_DREAM_CAP
+                        or self.ai_market_state == "revolt" and data["price"] <= AI_REVOLT_DREAM_FLOOR
+                    )
+                ):
+                    continue
                 # Ten small steps create the former +/-3% per-second feel,
                 # while making the graph update smoothly every 0.1 seconds.
                 data["price"] = round(max(1.0, data["price"] * random.choice((0.997, 1.003))), 2)
 
             if self.ai_market_state == "adoption":
                 # The first Dream Factory news is a lasting market trend.
-                self.stocks["Dream"]["price"] = round(self.stocks["Dream"]["price"] * 1.006, 2)
+                self.stocks["Dream"]["price"] = round(min(AI_ADOPTION_DREAM_CAP, self.stocks["Dream"]["price"] * 1.006), 2)
             elif self.ai_market_state == "revolt":
                 # After the betrayal, the two AI-sensitive assets reverse.
-                self.stocks["Dream"]["price"] = round(max(1.0, self.stocks["Dream"]["price"] * 0.994), 2)
+                self.stocks["Dream"]["price"] = round(max(AI_REVOLT_DREAM_FLOOR, self.stocks["Dream"]["price"] * 0.994), 2)
 
             fear = self.stocks["Fear"]
             if self.ai_market_state == "adoption":
-                fear["price"] = round(max(1.0, fear["price"] * 0.994), 2)
+                fear["price"] = round(max(AI_ADOPTION_FEAR_FLOOR, fear["price"] * 0.994), 2)
             elif self.ai_market_state == "revolt":
-                fear["price"] = round(fear["price"] * 1.008, 2)
+                fear["price"] = round(min(AI_REVOLT_FEAR_CAP, fear["price"] * 1.008), 2)
             elif not self.fear_shocked:
                 fear["price"] = round(max(1.0, fear["price"] * random.choice((0.997, 1.003))), 2)
             elif fear["price"] < 30000:
