@@ -6,10 +6,10 @@ import random
 
 
 LEVEL1_TRANSACTION_LIMIT = 100
-AI_ADOPTION_DREAM_CAP = 10000.0
+AI_ADOPTION_DREAM_CAP = 5000.0
 AI_ADOPTION_FEAR_FLOOR = 500.0
 AI_REVOLT_DREAM_FLOOR = 500.0
-AI_REVOLT_FEAR_CAP = 10000.0
+AI_REVOLT_FEAR_CAP = 5000.0
 
 
 class Market:
@@ -30,6 +30,11 @@ class Market:
         self.level2_targets = None
         self.level2_fee_notice_shown = False
         self.level1_transaction_count = 0
+        self.reached_high_point1 = False
+        self.reached_high_point2 = False
+        self.reached_low_point = False
+        self.time_counter = 0
+        self.climb = False
         self.history: dict[str, list[tuple[float, float]]] = {
             name: [(0.0, data["price"])] for name, data in self.stocks.items()
         }
@@ -75,31 +80,39 @@ class Market:
 
             if self.ai_market_state == "adoption":
                 # The first Dream Factory news is a lasting market trend.
-                self.stocks["Dream"]["price"] = round(min(AI_ADOPTION_DREAM_CAP, self.stocks["Dream"]["price"] * 1.006), 2)
+                self.stocks["Dream"]["price"] = round(min(AI_ADOPTION_DREAM_CAP, self.stocks["Dream"]["price"] * random.uniform(0.991, 1.0252)), 2)
             elif self.ai_market_state == "revolt":
                 # After the betrayal, the two AI-sensitive assets reverse.
-                self.stocks["Dream"]["price"] = round(max(AI_REVOLT_DREAM_FLOOR, self.stocks["Dream"]["price"] * 0.994), 2)
+                self.stocks["Dream"]["price"] = round(max(AI_REVOLT_DREAM_FLOOR, self.stocks["Dream"]["price"] * random.uniform(0.968, 1.01)), 2)
 
             fear = self.stocks["Fear"]
             if self.ai_market_state == "adoption":
-                fear["price"] = round(max(AI_ADOPTION_FEAR_FLOOR, fear["price"] * 0.994), 2)
+                fear["price"] = round(max(AI_ADOPTION_FEAR_FLOOR, fear["price"] * random.uniform(0.968, 1.01)), 2)
             elif self.ai_market_state == "revolt":
-                fear["price"] = round(min(AI_REVOLT_FEAR_CAP, fear["price"] * 1.008), 2)
+                fear["price"] = round(min(AI_REVOLT_FEAR_CAP, fear["price"] * random.uniform(0.991, 1.0252)), 2)
             elif not self.fear_shocked:
-                fear["price"] = round(max(1.0, fear["price"] * random.choice((0.997, 1.003))), 2)
-            elif fear["price"] < 30000:
+                fear["price"] = round(max(500.0, fear["price"] * random.choice((0.997, 1.003))), 2)
+            elif fear["price"] < 5000 and not self.reached_high_point1:
                 # Sustained, visible rise until Fear reaches the cap threshold.
-                fear["price"] = round(fear["price"] * random.uniform(1.007, 1.012), 2)
+                fear["price"] = round(fear["price"] * random.uniform(0.99, 1.052), 2)
             else:
-                # Once Fear reaches $30,000, it becomes a once-per-second
+                # Once Fear reaches $5,000, it becomes a once-per-second
                 # high-volatility asset instead of rising forever.
+                self.reached_high_point1 = True
                 self._fear_volatility_timer += 0.1
-                if self._fear_volatility_timer >= 1.0 - 1e-9:
-                    self._fear_volatility_timer -= 1.0
+                if self._fear_volatility_timer >= 0.1 - 1e-9:
+                    self._fear_volatility_timer -= 0.1
+                    self.time_counter += 1
                     if abs(self._fear_volatility_timer) < 1e-9:
                         self._fear_volatility_timer = 0.0
-                    fear["price"] = round(fear["price"] * random.choice((0.90, 1.10)), 2)
-
+                    if fear["price"] > 7000:
+                        self.climb = False
+                    elif fear["price"] < 3000:    
+                        self.climb = True
+                    if self.climb:
+                        fear["price"] = round(fear["price"] * (1.1 if random.randint(0, 1) == 1 else 0.99), 2)
+                    else:
+                        fear["price"] = round(fear["price"] * (0.91 if random.randint(0, 1) == 1 else 1.01), 2)
             for name, data in self.stocks.items():
                 self.history[name].append((tick_time, data["price"]))
 

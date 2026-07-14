@@ -35,7 +35,7 @@ def draw_return_to_menu_confirmation(surface, fonts: dict) -> None:
     pygame.draw.rect(surface, (25, 32, 52), dialog, border_radius=14)
     pygame.draw.rect(surface, (130, 180, 255), dialog, 3, border_radius=14)
     title = fonts["body"].render("Return to the main menu?", True, (245, 245, 255))
-    tip = fonts["small"].render("ENTER / Y: return    ESC / N: keep playing", True, (205, 220, 245))
+    tip = fonts["small"].render("ENTER / SPACE / CLICK: return    ESC / N: keep playing", True, (205, 220, 245))
     surface.blit(title, (dialog.centerx - title.get_width() // 2, dialog.y + 68))
     surface.blit(tip, (dialog.centerx - tip.get_width() // 2, dialog.y + 138))
 
@@ -94,11 +94,16 @@ def main() -> None:
                 if event.type == pygame.QUIT:
                     context.running = False
                 elif event.type == pygame.KEYDOWN:
-                    if event.key in (pygame.K_RETURN, pygame.K_y):
+                    if event.key in (pygame.K_RETURN, pygame.K_SPACE, pygame.K_y):
                         return_to_menu_confirmation = False
                         scene_manager.change_scene("MENU")
                     elif event.key in (pygame.K_ESCAPE, pygame.K_n):
                         return_to_menu_confirmation = False
+                elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+                    dialog = pygame.Rect(SCREEN_WIDTH // 2 - 310, SCREEN_HEIGHT // 2 - 120, 620, 240)
+                    if dialog.collidepoint(to_game_coordinates(event.pos)):
+                        return_to_menu_confirmation = False
+                        scene_manager.change_scene("MENU")
                 continue
 
             if event.type == pygame.QUIT:

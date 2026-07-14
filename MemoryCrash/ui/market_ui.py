@@ -13,5 +13,5 @@ class MarketUI:
             screen.blit(surface, (36, y))
             y += 38
 
-        help_text = fonts["small"].render("UP/DOWN select | B buy | S sell | ENTER continue", True, (170, 180, 210))
+        help_text = fonts["small"].render("W/S select | B buy | F sell | ENTER continue", True, (170, 180, 210))
         screen.blit(help_text, (36, 620))

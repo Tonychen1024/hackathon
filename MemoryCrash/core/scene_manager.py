@@ -17,6 +17,7 @@ from player.player import Player
 # between it and the exchange HUD on the right.
 LEVEL3_FAST_FORWARD_BUTTON = pygame.Rect(SCREEN_WIDTH - 630, 14, 360, 42)
 COMBAT_PAUSE_BUTTON = pygame.Rect(322, 14, 160, 42)
+LEVEL_START_INVULNERABILITY_SECONDS = 3.0
 
 UI_BG = (9, 13, 25)
 UI_PANEL = (19, 28, 48)
@@ -167,25 +168,38 @@ class MenuScene(Scene):
         _ = kwargs
         self.selected = self.manager.context.level_manager.current_index
 
+    def start_selected_level(self) -> None:
+        """Start the highlighted scenario from either keyboard or mouse input."""
+        context = self.manager.context
+        context.level_manager.set_level(self.selected)
+        if context.level_manager.current_level.world_cup:
+            context.player.reset_for_level_two()
+        else:
+            context.player.reset_for_new_run()
+        context.market.reset()
+        next_scene = "LEVEL2_INTRO" if context.level_manager.current_level.world_cup else "LEVEL"
+        self.manager.change_scene(next_scene)
+
     def handle_event(self, event) -> None:
+        if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+            for index in range(len(self.manager.context.level_manager.levels)):
+                row = pygame.Rect(226, 262 + index * 96, 828, 82)
+                if row.collidepoint(event.pos):
+                    self.selected = index
+                    self.start_selected_level()
+                    return
+            return
+
         if event.type != pygame.KEYDOWN:
             return
 
         levels = self.manager.context.level_manager.levels
-        if event.key == pygame.K_UP:
+        if event.key in (pygame.K_UP, pygame.K_w):
             self.selected = max(0, self.selected - 1)
-        elif event.key == pygame.K_DOWN:
+        elif event.key in (pygame.K_DOWN, pygame.K_s):
             self.selected = min(len(levels) - 1, self.selected + 1)
-        elif event.key == pygame.K_RETURN:
-            context = self.manager.context
-            context.level_manager.set_level(self.selected)
-            if context.level_manager.current_level.world_cup:
-                context.player.reset_for_level_two()
-            else:
-                context.player.reset_for_new_run()
-            context.market.reset()
-            next_scene = "LEVEL2_INTRO" if context.level_manager.current_level.world_cup else "LEVEL"
-            self.manager.change_scene(next_scene)
+        elif event.key in (pygame.K_RETURN, pygame.K_SPACE):
+            self.start_selected_level()
 
     def draw(self, surface) -> None:
         draw_screen_background(surface)
@@ -240,6 +254,7 @@ class CombatScene(Scene):
         level = context.level_manager.current_level
         context.market.level_mode = "level2" if level.world_cup else ("level3" if level.is_dream_factory else "level1")
         context.player.reset_position(SCREEN_WIDTH / 2, SCREEN_HEIGHT / 2)
+        context.player.grant_invulnerability(LEVEL_START_INVULNERABILITY_SECONDS)
         if level.is_dream_factory:
             context.market.trigger_ai_adoption()
             self.manager.last_combat_scene = self.combat_scene_name
@@ -335,7 +350,7 @@ class CombatScene(Scene):
         if (
             level.index == 1
             and not level.news_triggered
-            and level.elapsed >= 20.0
+            and level.elapsed >= 10.0
         ):
             level.news_triggered = True
             context.market.trigger_ai_jobs_news()
@@ -429,9 +444,9 @@ class MarketScene(Scene):
             return
 
         context = self.manager.context
-        if event.key == pygame.K_UP:
+        if event.key in (pygame.K_UP, pygame.K_w):
             self.selected = max(0, self.selected - 1)
-        elif event.key == pygame.K_DOWN:
+        elif event.key in (pygame.K_DOWN, pygame.K_s):
             self.selected = min(len(self.stock_names) - 1, self.selected + 1)
         elif event.key == pygame.K_b:
             if context.market.level1_transaction_limit_reached:
@@ -440,14 +455,14 @@ class MarketScene(Scene):
             changed = context.market.buy_fragment(context.player, self.selected_stock, 1)
             if changed and context.level_manager.current_level.world_cup and not context.market.level2_fee_notice_shown:
                 context.market.level2_fee_notice_shown = True; self.manager.change_scene("FEE_NOTICE")
-        elif event.key == pygame.K_s:
+        elif event.key == pygame.K_f:
             if context.market.level1_transaction_limit_reached:
                 self.manager.change_scene("TRANSACTION_LIMIT")
                 return
             changed = context.market.sell_fragment(context.player, self.selected_stock, 1)
             if changed and context.level_manager.current_level.world_cup and not context.market.level2_fee_notice_shown:
                 context.market.level2_fee_notice_shown = True; self.manager.change_scene("FEE_NOTICE")
-        elif event.key == pygame.K_ESCAPE:
+        elif event.key in (pygame.K_ESCAPE, pygame.K_TAB, pygame.K_q):
             self.manager.change_scene(self.manager.last_combat_scene, resume=True)
 
     def update(self, dt: float) -> None:
@@ -494,7 +509,7 @@ class MarketScene(Scene):
         draw_price_chart(surface, context, pygame.Rect(668, 134, 552, 458))
         draw_panel(surface, pygame.Rect(48, 584, 1172, 90), border=(55, 75, 112), fill=(14, 23, 40), radius=14)
         draw_section_label(surface, fonts["small"], "TRADE CONTROLS", (72, 600))
-        draw_centered_text(surface, fonts["small"], "UP / DOWN  SELECT     B  BUY     S  SELL     ESC  RETURN TO COMBAT", UI_TEXT, (634, 645))
+        draw_centered_text(surface, fonts["small"], "W / S  SELECT     B  BUY     F  SELL     ESC / TAB / Q  RETURN", UI_TEXT, (634, 645))
 
 
 class NewsScene(Scene):
@@ -559,9 +574,9 @@ class PenaltyScene(Scene):
             if event.key in (pygame.K_y,pygame.K_RETURN): level.resolve_reward(self.manager.context.player,accept=True)
             elif event.key in (pygame.K_n,pygame.K_ESCAPE): level.resolve_reward(self.manager.context.player,accept=False)
         else:
-            if event.key==pygame.K_UP:self.selected=max(0,self.selected-1)
-            elif event.key==pygame.K_DOWN:self.selected=min(2,self.selected+1)
-            elif event.key==pygame.K_RETURN: level.resolve_reward(self.manager.context.player,self.selected)
+            if event.key in (pygame.K_UP, pygame.K_w):self.selected=max(0,self.selected-1)
+            elif event.key in (pygame.K_DOWN, pygame.K_s):self.selected=min(2,self.selected+1)
+            elif event.key in (pygame.K_RETURN, pygame.K_SPACE): level.resolve_reward(self.manager.context.player,self.selected)
     def draw(self,surface):
         f=self.manager.context.fonts; level=self.manager.context.level_manager.current_level
         draw_screen_background(surface, UI_HOPE)
