@@ -46,6 +46,7 @@ class GameContext:
     fonts: dict
     ending_manager: EndingManager
     running: bool = True
+    mouse_position: tuple[int, int] = (SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2)
 
 
 class SceneManager:
@@ -194,7 +195,7 @@ class CombatScene(Scene):
         keys = pygame.key.get_pressed()
         context.player.handle_movement(keys, dt, SCREEN_WIDTH, SCREEN_HEIGHT)
         if pygame.mouse.get_pressed()[0]:
-            mx, my = pygame.mouse.get_pos()
+            mx, my = context.mouse_position
             context.player.try_shoot(mx, my, pygame.time.get_ticks() / 1000.0, effects["dream_fire_scale"], level.world_cup)
 
         context.player.update_bullets(dt, SCREEN_WIDTH, SCREEN_HEIGHT)

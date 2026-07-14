@@ -130,7 +130,7 @@ class RogueAIEnemy:
         self.y = y
         self.base_hp = hp
         self.base_damage = damage
-        self.base_speed = 165
+        self.base_speed = 100
         self.hp = hp
         self.damage = damage
         self.speed = self.base_speed

@@ -14,6 +14,7 @@ from enemy.enemy import Enemy
 
 
 FRAGMENT_TYPES = ("Hope", "Dream", "Fear")
+ENTITY_COLLISION_PADDING = 0.5
 
 
 @dataclass
@@ -80,6 +81,7 @@ class Level:
     announcement: str = ""
     announcement_timer: float = 0.0
     combat_effects: list[CombatEffect] = field(default_factory=list)
+    rogue_wave_delay: float = 0.0
 
     @property
     def is_dream_factory(self) -> bool:
@@ -115,6 +117,7 @@ class Level:
         self.announcement = ""
         self.announcement_timer = 0.0
         self.combat_effects.clear()
+        self.rogue_wave_delay = 0.0
 
         if self.is_dream_factory:
             self.wave_index = 0
@@ -168,10 +171,12 @@ class Level:
     def start_rogue_wave(self, wave: int) -> None:
         """Start Wave 4, 5, or 6: only hostile AI units are spawned."""
         self.wave_index = wave
+        self.rogue_wave_delay = 0.0
         self.cleared = False
         self.enemies.clear()
         self.rogue_ais.clear()
         counts = {4: 1, 5: 3, 6: 5}
+        hp = {4: 48, 5: 48, 6: 30}[wave]
         damage = {4: 9, 5: 13, 6: 17}[wave]
         if wave == 4 and self.assistant is not None:
             positions = [(self.assistant.x, self.assistant.y)]
@@ -185,7 +190,7 @@ class Level:
             RogueAIEnemy(
                 x,
                 y,
-                hp=12,
+                hp=hp,
                 damage=damage,
                 formation_offset=(index - (counts[wave] - 1) / 2) * 82 if wave >= 5 else 0,
                 use_formation=wave >= 5,
@@ -287,6 +292,9 @@ class Level:
             enemy.set_fear_strength(size_scale, health_scale)
             enemy.move(dt, player.x, player.y, speed_scale)
             self.keep_enemy_in_bounds(enemy)
+
+        self.resolve_entity_collisions(self.enemies)
+        for enemy in self.enemies:
             if math.hypot(enemy.x - player.x, enemy.y - player.y) <= enemy.radius + player.radius:
                 enemy.attack(player, now, money_damage)
 
@@ -328,19 +336,25 @@ class Level:
                     self.news_request = "ai_revolt"
             return
         if self.level3_phase == "rogue":
+            if self.rogue_wave_delay > 0:
+                self.rogue_wave_delay = max(0.0, self.rogue_wave_delay - dt)
+                if self.rogue_wave_delay == 0:
+                    self.start_rogue_wave(self.wave_index + 1)
+                return
             self.resolve_player_rogue_hits(player)
             for rogue in self.rogue_ais:
                 rogue.update(dt, player, now, player.fragments["Fear"])
                 rogue.update_bullets(dt, player)
                 for hit_x, hit_y in rogue.apply_bullet_hits(player):
                     self.add_combat_effect(hit_x, hit_y, "player_hit")
+            self.resolve_entities_and_player_collisions(self.rogue_ais, player)
             defeated = [rogue for rogue in self.rogue_ais if not rogue.alive]
             for rogue in defeated:
                 self.fragments.append(MemoryFragment(rogue.x, rogue.y, random.choice(FRAGMENT_TYPES)))
             self.rogue_ais = [rogue for rogue in self.rogue_ais if rogue.alive]
             if not self.rogue_ais:
                 if self.wave_index < 6:
-                    self.start_rogue_wave(self.wave_index + 1)
+                    self.rogue_wave_delay = 3.0
                 else:
                     self.begin_apology()
 
@@ -361,11 +375,14 @@ class Level:
             if enemy.y <= enemy.radius or enemy.y >= SCREEN_HEIGHT - enemy.radius:
                 enemy.roll_vy *= -1
                 enemy.y = max(enemy.radius, min(SCREEN_HEIGHT - enemy.radius, enemy.y))
+            self.keep_enemy_in_bounds(enemy)
             if self.assistant is not None:
                 if self.bounce_assistant_from_enemy(self.assistant, enemy):
                     ai_collision_damage = money_damage * (enemy.damage / 8) / 3
                     if enemy.attack(player, now, ai_collision_damage):
                         self.add_combat_effect(self.assistant.x, self.assistant.y, "ai_hit")
+
+        for enemy in self.enemies:
             dx, dy = player.x - enemy.x, player.y - enemy.y
             distance = max(1.0, math.hypot(dx, dy))
             if distance <= enemy.radius + player.radius:
@@ -377,6 +394,90 @@ class Level:
                     player.y += dy / distance * knockback
                     player.x = max(player.radius, min(SCREEN_WIDTH - player.radius, player.x))
                     player.y = max(player.radius, min(SCREEN_HEIGHT - player.radius, player.y))
+
+        combat_entities = [*self.enemies]
+        if self.assistant is not None:
+            combat_entities.append(self.assistant)
+        self.resolve_entities_and_player_collisions(combat_entities, player)
+
+    def resolve_entity_collisions(self, entities) -> None:
+        """Separate every pair of arena entities so their collision circles never overlap."""
+        for _ in range(max(8, len(entities) * 4)):
+            collision_found = False
+            for index, first in enumerate(entities):
+                for second in entities[index + 1:]:
+                    if self.separate_entities(first, second):
+                        collision_found = True
+            if not collision_found:
+                break
+
+    def resolve_entities_and_player_collisions(self, entities, player) -> None:
+        """Resolve entity pairs and player contact until all hitboxes are separated."""
+        for _ in range(max(12, len(entities) * 3)):
+            self.resolve_entity_collisions(entities)
+            self.separate_entities_from_player(entities, player)
+            if self.entities_and_player_are_separated(entities, player):
+                return
+
+    @staticmethod
+    def entities_and_player_are_separated(entities, player) -> bool:
+        for index, first in enumerate(entities):
+            if math.hypot(first.x - player.x, first.y - player.y) < first.radius + player.radius:
+                return False
+            for second in entities[index + 1:]:
+                if math.hypot(first.x - second.x, first.y - second.y) < first.radius + second.radius:
+                    return False
+        return True
+
+    def separate_entities(self, first, second) -> bool:
+        dx, dy = second.x - first.x, second.y - first.y
+        distance = math.hypot(dx, dy)
+        minimum_distance = first.radius + second.radius
+        if distance >= minimum_distance:
+            return False
+        if distance < 0.001:
+            angle = math.tau * ((id(first) ^ id(second)) & 0xFF) / 256
+            dx, dy, distance = math.cos(angle), math.sin(angle), 1.0
+        overlap = minimum_distance - distance + ENTITY_COLLISION_PADDING
+        first.x -= dx / distance * overlap / 2
+        first.y -= dy / distance * overlap / 2
+        second.x += dx / distance * overlap / 2
+        second.y += dy / distance * overlap / 2
+        self.keep_enemy_in_bounds(first)
+        self.keep_enemy_in_bounds(second)
+        return True
+
+    def separate_entities_from_player(self, entities, player) -> None:
+        for entity in entities:
+            self.separate_entity_from_player(entity, player)
+
+    def separate_entity_from_player(self, entity, player) -> None:
+        """Keep combat entities outside the player hitbox in Levels 2 and 3."""
+        dx, dy = entity.x - player.x, entity.y - player.y
+        distance = math.hypot(dx, dy)
+        minimum_distance = entity.radius + player.radius
+        if distance >= minimum_distance:
+            return
+        if distance < 0.001:
+            dx, dy, distance = 1.0, 0.0, 1.0
+        overlap = minimum_distance - distance + ENTITY_COLLISION_PADDING
+        entity.x += dx / distance * overlap
+        entity.y += dy / distance * overlap
+        self.keep_enemy_in_bounds(entity)
+
+        # If an enemy is already against a wall, move the player just enough
+        # to finish separating the two collision boxes.
+        dx, dy = entity.x - player.x, entity.y - player.y
+        distance = math.hypot(dx, dy)
+        if distance >= minimum_distance:
+            return
+        if distance < 0.001:
+            dx, dy, distance = 1.0, 0.0, 1.0
+        overlap = minimum_distance - distance + ENTITY_COLLISION_PADDING
+        player.x -= dx / distance * overlap
+        player.y -= dy / distance * overlap
+        player.x = max(player.radius, min(SCREEN_WIDTH - player.radius, player.x))
+        player.y = max(player.radius, min(SCREEN_HEIGHT - player.radius, player.y))
 
     def drop_dispersed_fear_fragment(self) -> None:
         """Place each timed Fear fragment across the whole arena, not its centre."""
@@ -503,6 +604,7 @@ class Level:
             if now - enemy._last_attack_at > 1.35 / fear_scale:
                 self.enemy_bullets.append(EnemyBullet(enemy.x, enemy.y, dx / distance * 300 * fear_scale, dy / distance * 300 * fear_scale))
                 enemy._last_attack_at = now
+        self.resolve_entities_and_player_collisions(self.enemies, player)
         for bullet in player.bullets:
             for enemy in self.enemies:
                 if bullet.alive and math.hypot(bullet.x - enemy.x, bullet.y - enemy.y) <= bullet.radius + enemy.radius:
@@ -560,15 +662,16 @@ class Level:
         self.fragments = remaining
 
     def scatter_fear_fragments(self, player, amount: int = 14) -> None:
+        virus_size = 24
         for _ in range(amount):
             angle = random.uniform(0, math.tau)
             distance = random.uniform(30, 250)
             self.fragments.append(
                 MemoryFragment(
-                    max(16, min(SCREEN_WIDTH - 16, player.x + math.cos(angle) * distance)),
-                    max(16, min(SCREEN_HEIGHT - 16, player.y + math.sin(angle) * distance)),
+                    max(virus_size + 8, min(SCREEN_WIDTH - virus_size - 8, player.x + math.cos(angle) * distance)),
+                    max(virus_size + 8, min(SCREEN_HEIGHT - virus_size - 8, player.y + math.sin(angle) * distance)),
                     "Fear",
-                    20,
+                    virus_size,
                     True,
                 )
             )
@@ -619,6 +722,25 @@ class Level:
         fragment_colors = {"Hope": (120, 255, 170), "Dream": (130, 160, 255), "Fear": (220, 120, 255)}
         for fragment in self.fragments:
             color = fragment_colors[fragment.kind]
+            if fragment.is_covid:
+                center = (int(fragment.x), int(fragment.y))
+                radius = fragment.size
+                pygame.draw.circle(surface, (175, 42, 82), center, radius)
+                pygame.draw.circle(surface, (255, 130, 160), center, radius, 2)
+                for spike in range(12):
+                    angle = math.tau * spike / 12
+                    inner = (
+                        int(fragment.x + math.cos(angle) * radius),
+                        int(fragment.y + math.sin(angle) * radius),
+                    )
+                    outer = (
+                        int(fragment.x + math.cos(angle) * (radius + 8)),
+                        int(fragment.y + math.sin(angle) * (radius + 8)),
+                    )
+                    pygame.draw.line(surface, (255, 105, 145), inner, outer, 3)
+                    pygame.draw.circle(surface, (255, 155, 180), outer, 4)
+                pygame.draw.circle(surface, (105, 20, 55), center, max(4, radius // 3))
+                continue
             pygame.draw.rect(surface, color, pygame.Rect(int(fragment.x - fragment.size / 2), int(fragment.y - fragment.size / 2), fragment.size, fragment.size))
         if fear_price > 1000:
             alpha = min(170, int((fear_price - 1000) / 9000 * 170))
