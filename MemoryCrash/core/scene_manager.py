@@ -100,7 +100,7 @@ class MenuScene(Scene):
         surface.fill((12, 15, 25))
         fonts = self.manager.context.fonts
         title = fonts["title"].render(TITLE + " Prototype", True, (130, 180, 255))
-        tip = fonts["body"].render("ENTER 開始 | 上下選擇關卡", True, (236, 240, 255))
+        tip = fonts["body"].render("ENTER TO START | UP / DOWN TO SELECT", True, (236, 240, 255))
         surface.blit(title, (SCREEN_WIDTH // 2 - title.get_width() // 2, 120))
         surface.blit(tip, (SCREEN_WIDTH // 2 - tip.get_width() // 2, 190))
 
@@ -141,10 +141,6 @@ class CombatScene(Scene):
             level_manager = self.manager.context.level_manager
             if level_manager.current_level.cleared:
                 if level_manager.move_next():
-                    context = self.manager.context
-                    if level_manager.current_level.world_cup:
-                        context.player.reset_for_new_run()
-                        context.market.reset()
                     scene_name = "LEVEL2_INTRO" if level_manager.current_level.world_cup else ("BOSS" if level_manager.current_level.is_boss else "LEVEL")
                     self.manager.change_scene(scene_name)
                 else:
@@ -205,10 +201,7 @@ class CombatScene(Scene):
         draw_player_effects(surface, context.player)
         pygame.draw.circle(surface, (70, 140, 255), (int(context.player.x), int(context.player.y)), context.player.radius)
         for bullet in context.player.bullets:
-            if bullet.football:
-                draw_football(surface, bullet)
-            else:
-                pygame.draw.circle(surface, (250, 230, 90), (int(bullet.x), int(bullet.y)), bullet.radius)
+            pygame.draw.circle(surface, (245,245,245) if bullet.football else (250,230,90), (int(bullet.x), int(bullet.y)), bullet.radius)
 
         draw_hud(surface, context)
 
@@ -262,16 +255,10 @@ class MarketScene(Scene):
         elif event.key == pygame.K_DOWN:
             self.selected = min(len(self.stock_names) - 1, self.selected + 1)
         elif event.key == pygame.K_b:
-            if context.market.level1_transaction_limit_reached:
-                self.manager.change_scene("TRANSACTION_LIMIT")
-                return
             changed = context.market.buy_fragment(context.player, self.selected_stock, 1)
             if changed and context.level_manager.current_level.world_cup and not context.market.level2_fee_notice_shown:
                 context.market.level2_fee_notice_shown = True; self.manager.change_scene("FEE_NOTICE")
         elif event.key == pygame.K_s:
-            if context.market.level1_transaction_limit_reached:
-                self.manager.change_scene("TRANSACTION_LIMIT")
-                return
             changed = context.market.sell_fragment(context.player, self.selected_stock, 1)
             if changed and context.level_manager.current_level.world_cup and not context.market.level2_fee_notice_shown:
                 context.market.level2_fee_notice_shown = True; self.manager.change_scene("FEE_NOTICE")
@@ -291,13 +278,6 @@ class MarketScene(Scene):
 
         money = fonts["body"].render(f"Money: {int(context.player.money)}", True, (255, 255, 255))
         surface.blit(money, (40, 100))
-        if context.market.level_mode == "level1":
-            limit = fonts["small"].render(
-                f"Transactions: {context.market.level1_transaction_count}/100",
-                True,
-                (200, 200, 200),
-            )
-            surface.blit(limit, (40, 132))
 
         positive_title = fonts["body"].render("POSITIVE EFFECTS  (buy costs / sell earns)", True, (120, 255, 170))
         surface.blit(positive_title, (40, 150))
@@ -386,22 +366,6 @@ class FeeNoticeScene(Scene):
             t=f['body'].render(text,True,(255,220,130)); surface.blit(t,(SCREEN_WIDTH//2-t.get_width()//2,y))
 
 
-class TransactionLimitScene(Scene):
-    name = "TRANSACTION_LIMIT"
-
-    def handle_event(self, event) -> None:
-        if event.type == pygame.KEYDOWN and event.key in (pygame.K_RETURN, pygame.K_ESCAPE):
-            self.manager.change_scene("MARKET")
-
-    def draw(self, surface) -> None:
-        surface.fill((20, 20, 32))
-        fonts = self.manager.context.fonts
-        text = fonts["body"].render("You have reached your transaction limit", True, (255, 220, 130))
-        tip = fonts["small"].render("Press ENTER to return to the market", True, (240, 240, 255))
-        surface.blit(text, (SCREEN_WIDTH // 2 - text.get_width() // 2, 320))
-        surface.blit(tip, (SCREEN_WIDTH // 2 - tip.get_width() // 2, 390))
-
-
 class GameOverScene(Scene):
     name = "GAME_OVER"
 
@@ -464,24 +428,6 @@ def draw_player_effects(surface, player: Player) -> None:
         width = max(1, min(8, int(1 + player.shield_max / 20)))
         color = (255, 220, 40) if ratio > 0.2 else (140, 115, 30)
         pygame.draw.circle(surface, color, (int(player.x), int(player.y)), player.radius + 6, width)
-
-
-def draw_football(surface, bullet) -> None:
-    """Draw a compact black-and-white football for Level 2 shots."""
-    center = (int(bullet.x), int(bullet.y))
-    radius = bullet.radius
-    pygame.draw.circle(surface, (245, 245, 240), center, radius)
-    pygame.draw.circle(surface, (30, 30, 35), center, radius, 1)
-    pentagon = [
-        (
-            center[0] + int(radius * 0.34 * math.cos(math.tau * point / 5 - math.pi / 2)),
-            center[1] + int(radius * 0.34 * math.sin(math.tau * point / 5 - math.pi / 2)),
-        )
-        for point in range(5)
-    ]
-    pygame.draw.polygon(surface, (30, 30, 35), pentagon)
-    for point in pentagon:
-        pygame.draw.line(surface, (30, 30, 35), center, point, 1)
 
 
 def draw_price_chart(surface, context: GameContext, rect: pygame.Rect) -> None:
