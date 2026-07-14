@@ -6,7 +6,7 @@ import pygame
 
 from config import FPS, SCREEN_HEIGHT, SCREEN_WIDTH, TITLE
 from core.scene_manager import (
-    BossScene,
+    EndingScene,
     GameContext,
     GameOverScene,
     LevelScene,
@@ -19,6 +19,7 @@ from core.scene_manager import (
     TransactionLimitScene,
     SceneManager,
 )
+from core.ending_manager import EndingManager
 from levels.level_manager import LevelManager
 from market.market import Market
 from player.player import Player
@@ -41,6 +42,7 @@ def main() -> None:
         level_manager=LevelManager(),
         market=Market(),
         fonts=fonts,
+        ending_manager=EndingManager(),
     )
     scene_manager = SceneManager(context)
     scene_manager.register(MenuScene(scene_manager))
@@ -51,8 +53,8 @@ def main() -> None:
     scene_manager.register(PenaltyScene(scene_manager))
     scene_manager.register(FeeNoticeScene(scene_manager))
     scene_manager.register(TransactionLimitScene(scene_manager))
-    scene_manager.register(BossScene(scene_manager))
     scene_manager.register(GameOverScene(scene_manager))
+    scene_manager.register(EndingScene(scene_manager))
     scene_manager.change_scene("MENU")
 
     while context.running:

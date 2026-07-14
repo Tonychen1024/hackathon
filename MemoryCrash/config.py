@@ -25,6 +25,5 @@ COLORS = {
 DEFAULT_STOCKS = {
     "Childhood": {"price": 100.0, "volatility": 0.06, "effect": "map_mood"},
     "Dream": {"price": 120.0, "volatility": 0.08, "effect": "atk_speed"},
-    "Regret": {"price": 90.0, "volatility": 0.12, "effect": "enemy_power"},
     "Fear": {"price": 95.0, "volatility": 0.1, "effect": "boss_power"},
 }

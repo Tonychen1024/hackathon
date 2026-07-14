@@ -19,6 +19,7 @@ class Market:
         self._fear_volatility_timer = 0.0
         self.elapsed = 0.0
         self.fear_shocked = False
+        self.ai_market_state: str | None = None
         self.level_mode = "level1"
         self.level2_timer = 0.0
         self.level2_starts = None
@@ -60,8 +61,19 @@ class Market:
                 # while making the graph update smoothly every 0.1 seconds.
                 data["price"] = round(max(1.0, data["price"] * random.choice((0.997, 1.003))), 2)
 
+            if self.ai_market_state == "adoption":
+                # The first Dream Factory news is a lasting market trend.
+                self.stocks["Dream"]["price"] = round(self.stocks["Dream"]["price"] * 1.006, 2)
+            elif self.ai_market_state == "revolt":
+                # After the betrayal, the two AI-sensitive assets reverse.
+                self.stocks["Dream"]["price"] = round(max(1.0, self.stocks["Dream"]["price"] * 0.994), 2)
+
             fear = self.stocks["Fear"]
-            if not self.fear_shocked:
+            if self.ai_market_state == "adoption":
+                fear["price"] = round(max(1.0, fear["price"] * 0.994), 2)
+            elif self.ai_market_state == "revolt":
+                fear["price"] = round(fear["price"] * 1.008, 2)
+            elif not self.fear_shocked:
                 fear["price"] = round(max(1.0, fear["price"] * random.choice((0.997, 1.003))), 2)
             elif fear["price"] < 30000:
                 # Sustained, visible rise until Fear reaches the cap threshold.
@@ -86,6 +98,14 @@ class Market:
     def trigger_ai_jobs_news(self) -> None:
         """Start Fear's sustained upward trend after the Level 1 news."""
         self.fear_shocked = True
+
+    def trigger_ai_adoption(self) -> None:
+        """Begin Dream's long rise and Fear's long decline in Level 3."""
+        self.ai_market_state = "adoption"
+
+    def trigger_ai_revolt(self) -> None:
+        """Reverse the Dream Factory market trend after the AI betrayal."""
+        self.ai_market_state = "revolt"
 
     def reset(self) -> None:
         """Restore opening prices, chart data, and event state for a new run."""

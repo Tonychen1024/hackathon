@@ -7,6 +7,7 @@ import math
 import pygame
 
 from config import SCREEN_HEIGHT, SCREEN_WIDTH, TITLE
+from core.ending_manager import EndingManager
 from levels.level_manager import LevelManager
 from market.market import Market
 from player.player import Player
@@ -40,6 +41,7 @@ class GameContext:
     level_manager: LevelManager
     market: Market
     fonts: dict
+    ending_manager: EndingManager
     running: bool = True
 
 
@@ -96,7 +98,7 @@ class MenuScene(Scene):
             else:
                 context.player.reset_for_new_run()
             context.market.reset()
-            next_scene = "LEVEL2_INTRO" if context.level_manager.current_level.world_cup else ("BOSS" if context.level_manager.current_level.is_boss else "LEVEL")
+            next_scene = "LEVEL2_INTRO" if context.level_manager.current_level.world_cup else "LEVEL"
             self.manager.change_scene(next_scene)
 
     def draw(self, surface) -> None:
@@ -130,8 +132,13 @@ class CombatScene(Scene):
         self.show_clear = False
         context = self.manager.context
         context.level_manager.current_level.enter()
-        context.market.level_mode = "level2" if context.level_manager.current_level.world_cup else "level1"
+        level = context.level_manager.current_level
+        context.market.level_mode = "level2" if level.world_cup else ("level3" if level.is_dream_factory else "level1")
         context.player.reset_position(SCREEN_WIDTH / 2, SCREEN_HEIGHT / 2)
+        if level.is_dream_factory:
+            context.market.trigger_ai_adoption()
+            self.manager.last_combat_scene = self.combat_scene_name
+            self.manager.change_scene("NEWS")
 
     def handle_event(self, event) -> None:
         if event.type != pygame.KEYDOWN:
@@ -144,15 +151,18 @@ class CombatScene(Scene):
         elif event.key == pygame.K_RETURN:
             level_manager = self.manager.context.level_manager
             if level_manager.current_level.cleared:
+                if level_manager.current_level.is_dream_factory:
+                    return
                 if level_manager.move_next():
                     context = self.manager.context
                     if level_manager.current_level.world_cup:
                         context.player.reset_for_level_two()
                         context.market.reset()
-                    scene_name = "LEVEL2_INTRO" if level_manager.current_level.world_cup else ("BOSS" if level_manager.current_level.is_boss else "LEVEL")
+                    scene_name = "LEVEL2_INTRO" if level_manager.current_level.world_cup else "LEVEL"
                     self.manager.change_scene(scene_name)
                 else:
-                    self.manager.change_scene("GAME_OVER")
+                    self.manager.context.ending_manager.start_ai_apology()
+                    self.manager.change_scene("ENDING")
 
     def update(self, dt: float) -> None:
         context = self.manager.context
@@ -185,6 +195,16 @@ class CombatScene(Scene):
         level.collect_fragments(context.player)
         if level.world_cup and level.pending_reward:
             self.manager.last_combat_scene = self.combat_scene_name; self.manager.change_scene("PENALTY"); return
+        if level.needs_news:
+            if level.news_request == "ai_revolt":
+                context.market.trigger_ai_revolt()
+            self.manager.last_combat_scene = self.combat_scene_name
+            self.manager.change_scene("NEWS")
+            return
+        if level.is_dream_factory and level.level3_phase == "apology" and level.apology_elapsed >= 3.0:
+            context.ending_manager.start_ai_apology()
+            self.manager.change_scene("ENDING")
+            return
         self.show_clear = level.cleared
 
         if (
@@ -200,7 +220,11 @@ class CombatScene(Scene):
             return
 
         if context.player.money <= 0:
-            self.manager.change_scene("GAME_OVER")
+            if level.ai_combat_active:
+                context.ending_manager.start_ai_victory()
+                self.manager.change_scene("ENDING")
+            else:
+                self.manager.change_scene("GAME_OVER")
 
     def draw(self, surface) -> None:
         context = self.manager.context
@@ -215,7 +239,7 @@ class CombatScene(Scene):
 
         draw_hud(surface, context)
 
-        if self.show_clear:
+        if self.show_clear and not level.is_dream_factory:
             clear = context.fonts["title"].render("LEVEL CLEAR", True, (255, 255, 150))
             tip = context.fonts["body"].render("Press ENTER for next level", True, (255, 255, 255))
             surface.blit(clear, (SCREEN_WIDTH // 2 - clear.get_width() // 2, 280))
@@ -236,11 +260,6 @@ class Level2IntroScene(Scene):
         surface.fill((14,32,50)); f=self.manager.context.fonts
         for text,y in (("Now, The World Cup is in full swing,",285),("hold onto your hopes for the country you support!",340)):
             t=f['body'].render(text,True,(245,240,200)); surface.blit(t,(SCREEN_WIDTH//2-t.get_width()//2,y))
-
-
-class BossScene(CombatScene):
-    name = "BOSS"
-    combat_scene_name = "BOSS"
 
 
 class MarketScene(Scene):
@@ -326,8 +345,14 @@ class NewsScene(Scene):
 
     name = "NEWS"
 
+    def enter(self, **kwargs) -> None:
+        _ = kwargs
+        self.news_kind = self.manager.context.level_manager.current_level.news_request or "covid"
+
     def handle_event(self, event) -> None:
         if event.type == pygame.KEYDOWN and event.key in (pygame.K_RETURN, pygame.K_SPACE, pygame.K_ESCAPE):
+            if self.news_kind in ("ai_adoption", "ai_revolt"):
+                self.manager.context.level_manager.current_level.dismiss_news(self.news_kind)
             self.manager.change_scene(self.manager.last_combat_scene, resume=True)
 
     def draw(self, surface) -> None:
@@ -335,9 +360,27 @@ class NewsScene(Scene):
         fonts = context.fonts
         surface.fill((15, 12, 24))
         title = fonts["title"].render("BREAKING NEWS", True, (255, 100, 100))
-        headline_1 = fonts["body"].render("The continued spread of COVID-19", True, (255, 235, 170))
-        headline_2 = fonts["body"].render("may lead to severe disaster in many region", True, (255, 235, 170))
-        result = fonts["body"].render("Fear fragments are spreading. Fear price begins a sustained rise.", True, (220, 220, 255))
+        stories = {
+            "covid": (
+                "The continued spread of COVID-19",
+                "may lead to severe disaster in many region",
+                "Fear fragments are spreading. Fear price begins a sustained rise.",
+            ),
+            "ai_adoption": (
+                "With the widespread adoption of AI,",
+                "we now have machine assistants for everyone. Please make good use of them.",
+                "Dream price begins a long rise. Fear price begins a long decline.",
+            ),
+            "ai_revolt": (
+                "AI systems have developed self-awareness",
+                "and begun attacking humans.",
+                "Dream is falling. Fear is rising.",
+            ),
+        }
+        story = stories[self.news_kind]
+        headline_1 = fonts["body"].render(story[0], True, (255, 235, 170))
+        headline_2 = fonts["body"].render(story[1], True, (255, 235, 170))
+        result = fonts["body"].render(story[2], True, (220, 220, 255))
         tip = fonts["small"].render("Press ENTER, SPACE, or ESC to resume combat", True, (200, 200, 200))
         surface.blit(title, (SCREEN_WIDTH // 2 - title.get_width() // 2, 220))
         surface.blit(headline_1, (SCREEN_WIDTH // 2 - headline_1.get_width() // 2, 300))
@@ -419,6 +462,32 @@ class GameOverScene(Scene):
         tip = fonts["body"].render("Press ENTER to return MENU", True, (235, 235, 235))
         surface.blit(title, (SCREEN_WIDTH // 2 - title.get_width() // 2, 280))
         surface.blit(tip, (SCREEN_WIDTH // 2 - tip.get_width() // 2, 350))
+
+
+class EndingScene(Scene):
+    name = "ENDING"
+
+    def handle_event(self, event) -> None:
+        if event.type == pygame.KEYDOWN and event.key in (pygame.K_RETURN, pygame.K_ESCAPE, pygame.K_SPACE):
+            context = self.manager.context
+            context.ending_manager.clear()
+            context.player.reset_for_new_run()
+            context.market.reset()
+            self.manager.change_scene("MENU")
+
+    def draw(self, surface) -> None:
+        context = self.manager.context
+        surface.fill((8, 8, 14))
+        if context.ending_manager.outcome == "ai_victory":
+            title = context.fonts["title"].render("You have become a servant of AI.", True, (255, 85, 95))
+            subtitle = context.fonts["body"].render("Looser !", True, (255, 155, 160))
+        else:
+            title = context.fonts["title"].render("MEMORY CRASH COMPLETE", True, (125, 230, 255))
+            subtitle = context.fonts["body"].render("The Dream Assistant returned to blue.", True, (220, 245, 255))
+        tip = context.fonts["small"].render("Press ENTER to return MENU", True, (220, 220, 230))
+        surface.blit(title, (SCREEN_WIDTH // 2 - title.get_width() // 2, 275))
+        surface.blit(subtitle, (SCREEN_WIDTH // 2 - subtitle.get_width() // 2, 350))
+        surface.blit(tip, (SCREEN_WIDTH // 2 - tip.get_width() // 2, 425))
 
 
 def draw_hud(surface, context: GameContext) -> None:

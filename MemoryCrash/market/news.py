@@ -14,7 +14,6 @@ class NewsEvent:
 DEFAULT_NEWS = [
     NewsEvent("Emotional data leak in downtown exchange.", "Childhood", -0.25),
     NewsEvent("AI creativity grants boost dream assets.", "Dream", 0.30),
-    NewsEvent("Panic waves spread through regret sector.", "Regret", 0.20),
     NewsEvent("Fear index suppressed by neural firewall.", "Fear", -0.18),
 ]
 

@@ -1,17 +1,19 @@
-"""Level system for combat progression."""
+"""Combat levels and the three-level Memory Crash progression."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-import random
 import math
+import random
+
 import pygame
 
 from config import SCREEN_HEIGHT, SCREEN_WIDTH
+from enemy.ai_entity import DreamAssistant, RogueAIEnemy
 from enemy.enemy import Enemy
 
 
-FRAGMENT_TYPES = ["Hope", "Dream", "Fear"]
+FRAGMENT_TYPES = ("Hope", "Dream", "Fear")
 
 
 @dataclass
@@ -22,12 +24,19 @@ class MemoryFragment:
     size: int = 10
     is_covid: bool = False
 
+
 @dataclass
 class EnemyBullet:
-    x: float; y: float; vx: float; vy: float; alive: bool = True
+    x: float
+    y: float
+    vx: float
+    vy: float
+    alive: bool = True
+
     def update(self, dt: float) -> None:
-        self.x += self.vx * dt; self.y += self.vy * dt
-        self.alive = 0 <= self.x <= 1280 and 0 <= self.y <= 720
+        self.x += self.vx * dt
+        self.y += self.vy * dt
+        self.alive = 0 <= self.x <= SCREEN_WIDTH and 0 <= self.y <= SCREEN_HEIGHT
 
 
 @dataclass
@@ -35,7 +44,6 @@ class Level:
     index: int
     name: str
     enemy_target: int
-    is_boss: bool = False
     enemies: list[Enemy] = field(default_factory=list)
     fragments: list[MemoryFragment] = field(default_factory=list)
     kills: int = 0
@@ -53,61 +61,142 @@ class Level:
     pending_event: tuple[int, int, int] | None = None
     reward_message: str = ""
     fragment_drop_timer: float = 0.0
+    fear_drop_timer: float = 0.0
+    assistant: DreamAssistant | None = None
+    rogue_ais: list[RogueAIEnemy] = field(default_factory=list)
+    level3_phase: str = ""
+    rebellion_elapsed: float = 0.0
+    apology_elapsed: float = 0.0
+    news_request: str | None = None
+    announcement: str = ""
+    announcement_timer: float = 0.0
+
+    @property
+    def is_dream_factory(self) -> bool:
+        return self.index == 3
+
+    @property
+    def ai_combat_active(self) -> bool:
+        return self.is_dream_factory and self.level3_phase == "rogue"
+
+    @property
+    def needs_news(self) -> bool:
+        return self.news_request is not None
 
     def enter(self) -> None:
-        self.enemies = []
-        self.fragments = []
+        self.enemies.clear()
+        self.fragments.clear()
+        self.enemy_bullets.clear()
+        self.rogue_ais.clear()
         self.kills = 0
         self.cleared = False
         self.news_triggered = False
         self.collected_fragments = 0
         self.elapsed = 0.0
         self.fragment_drop_timer = 0.0
-        self.enemy_bullets = []; self.pending_reward = False; self.pending_event = None; self.reward_message = ""
-        if self.world_cup: self.start_wave(0)
-        else: self.spawn_enemy()
+        self.fear_drop_timer = 0.0
+        self.pending_reward = False
+        self.pending_event = None
+        self.reward_message = ""
+        self.assistant = None
+        self.rebellion_elapsed = 0.0
+        self.apology_elapsed = 0.0
+        self.news_request = None
+        self.announcement = ""
+        self.announcement_timer = 0.0
+
+        if self.is_dream_factory:
+            self.wave_index = 0
+            self.level3_phase = "intro"
+            self.news_request = "ai_adoption"
+        elif self.world_cup:
+            self.start_wave(0)
+        else:
+            self.spawn_enemy()
+
+    def dismiss_news(self, news_kind: str) -> None:
+        if news_kind == "ai_adoption" and self.level3_phase == "intro":
+            self.news_request = None
+            self.level3_phase = "friendly"
+            self.assistant = DreamAssistant(SCREEN_WIDTH / 2 - 65, SCREEN_HEIGHT / 2)
+            self.announcement = "You no longer need to attack the enemy; the AI robot will eliminate them for you."
+            self.announcement_timer = 4.0
+            self.start_level3_wave(1)
+        elif news_kind == "ai_revolt" and self.level3_phase == "revolt_news":
+            self.news_request = None
+            self.level3_phase = "rebellion_animation"
+            self.rebellion_elapsed = 0.0
 
     def start_wave(self, index: int) -> None:
+        """Start one of Level 2's football waves."""
         self.wave_index = index
-        specs = [(5, 1.0, 1.0), (6, .8, 1.3), (8, .6, 1.7), (1, .5, 2.2)]
+        specs = ((5, 1.0, 1.0), (6, 0.8, 1.3), (8, 0.6, 1.7), (1, 0.5, 2.2))
         count, size, speed = specs[index]
-        self.enemies = [Enemy("World Cup Boss" if index == 3 else "Cup Runner", 1, 10, 130 * speed, "", random.randint(80,1200), random.randint(90,650), max(7,int(18*size))) for _ in range(count)]
+        self.enemies = [
+            Enemy(
+                "World Cup Boss" if index == 3 else "Cup Runner",
+                1,
+                10,
+                130 * speed,
+                "",
+                random.randint(80, 1200),
+                random.randint(90, 650),
+                max(7, int(18 * size)),
+            )
+            for _ in range(count)
+        ]
 
-    def resolve_reward(self, player, choice: int | None = None, accept: bool = True) -> None:
-        if self.pending_event and accept:
-            chance, hope, fear = self.pending_event
-            if random.randint(1,100) <= chance: player.fragments["Hope"] += hope; self.reward_message=f"Hope +{hope}"
-            else: player.fragments["Fear"] += fear; self.reward_message=f"Fear +{fear}"
-        elif self.pending_event: self.reward_message="Event declined"
-        elif choice == 0: player.fragments["Hope"] += 3; self.reward_message="Hope +3"
-        elif choice == 1: player.fragments["Dream"] += 3; self.reward_message="Dream +3"
-        elif choice == 2: player.fragments["Fear"] = max(0, player.fragments["Fear"] - 3); self.reward_message="Fear -3"
-        self.pending_reward = False; self.pending_event = None
-        if not self.enemies:
-            if self.wave_index == 3: self.cleared = True
-            else: self.start_wave(self.wave_index + 1)
+    def start_level3_wave(self, wave: int) -> None:
+        """Start a friendly-AI Dream Factory wave (1 through 3)."""
+        self.wave_index = wave
+        self.cleared = False
+        self.enemies.clear()
+        counts = {1: 15, 2: 10, 3: 10}
+        self.enemies = [self.make_rolling_enemy(wave) for _ in range(counts[wave])]
 
-    def exit(self) -> None:
-        self.enemies = []
-        self.fragments = []
+    def start_rogue_wave(self, wave: int) -> None:
+        """Start Wave 4, 5, or 6: only hostile AI units are spawned."""
+        self.wave_index = wave
+        self.cleared = False
+        self.enemies.clear()
+        self.rogue_ais.clear()
+        counts = {4: 1, 5: 3, 6: 5}
+        damage = {4: 6, 5: 8, 6: 10}[wave]
+        if wave == 4 and self.assistant is not None:
+            positions = [(self.assistant.x, self.assistant.y)]
+            self.assistant = None
+        else:
+            positions = [
+                (random.randint(100, 1180), random.randint(110, 610))
+                for _ in range(counts[wave])
+            ]
+        self.rogue_ais = [RogueAIEnemy(x, y, hp=5, damage=damage) for x, y in positions]
+        self.level3_phase = "rogue"
+
+    def make_rolling_enemy(self, wave: int) -> Enemy:
+        # Each friendly-AI wave is visibly larger and hits harder than the last.
+        hp, damage, speed, radius = {
+            1: (100, 8, 340, 15),
+            2: (135, 12, 375, 20),
+            3: (180, 16, 410, 25),
+        }[wave]
+        enemy = Enemy(
+            "Rolling Memory Error",
+            hp=hp,
+            damage=damage,
+            speed=speed,
+            reward_item=random.choice(FRAGMENT_TYPES),
+            x=random.randint(70, 1210),
+            y=random.randint(90, 650),
+            radius=radius,
+            attack_cooldown=0.7,
+        )
+        angle = random.random() * math.tau
+        enemy.roll_vx = math.cos(angle) * enemy.speed
+        enemy.roll_vy = math.sin(angle) * enemy.speed
+        return enemy
 
     def spawn_enemy(self) -> None:
-        if self.is_boss:
-            self.enemies.append(
-                Enemy(
-                    name="Exchange Core Boss",
-                    hp=420,
-                    damage=12,
-                    speed=120,
-                    reward_item="Core",
-                    x=640,
-                    y=180,
-                    radius=30,
-                    attack_cooldown=0.6,
-                )
-            )
-            return
-
         for _ in range(self.enemy_target):
             self.enemies.append(
                 Enemy(
@@ -122,59 +211,195 @@ class Level:
                 )
             )
 
-    def update(self, dt: float, player, now: float, enemy_speed_multiplier: float, enemy_money_damage: float, enemy_health_multiplier: float, enemy_size_multiplier: float) -> None:
+    def update(
+        self,
+        dt: float,
+        player,
+        now: float,
+        enemy_speed_multiplier: float,
+        enemy_money_damage: float,
+        enemy_health_multiplier: float,
+        enemy_size_multiplier: float,
+    ) -> None:
         self.elapsed += dt
-        if self.world_cup:
+        if self.is_dream_factory:
+            self.update_dream_factory(
+                dt,
+                player,
+                now,
+                enemy_speed_multiplier,
+                enemy_money_damage,
+                enemy_health_multiplier,
+                enemy_size_multiplier,
+            )
+        elif self.world_cup:
             self.fragment_drop_timer += dt
             while self.fragment_drop_timer >= 5.0:
                 self.fragment_drop_timer -= 5.0
                 self.drop_world_cup_fragment()
-            self.update_world_cup(
-                dt, player, now, enemy_speed_multiplier, enemy_money_damage
+            self.update_world_cup(dt, player, now, enemy_speed_multiplier, enemy_money_damage)
+        else:
+            self.update_normal(
+                dt,
+                player,
+                now,
+                enemy_speed_multiplier,
+                enemy_money_damage,
+                enemy_health_multiplier,
+                enemy_size_multiplier,
             )
-            return
+
+    def update_normal(self, dt, player, now, speed_scale, money_damage, health_scale, size_scale) -> None:
         for enemy in self.enemies:
-            enemy.set_fear_strength(enemy_size_multiplier, enemy_health_multiplier)
-            enemy.move(dt, player.x, player.y, enemy_speed_multiplier)
+            enemy.set_fear_strength(size_scale, health_scale)
+            enemy.move(dt, player.x, player.y, speed_scale)
             self.keep_enemy_in_bounds(enemy)
             if math.hypot(enemy.x - player.x, enemy.y - player.y) <= enemy.radius + player.radius:
-                enemy.attack(player, now, enemy_money_damage)
+                enemy.attack(player, now, money_damage)
+        self.resolve_player_bullets(player)
+        self.enemies = [enemy for enemy in self.enemies if enemy.alive]
+        self.cleared = self.kills >= self.enemy_target and not self.enemies
 
+    def update_dream_factory(self, dt, player, now, speed_scale, money_damage, health_scale, size_scale) -> None:
+        self.announcement_timer = max(0.0, self.announcement_timer - dt)
+        if self.level3_phase in {"intro", "revolt_news"}:
+            return
+        if self.level3_phase == "rebellion_animation":
+            self.rebellion_elapsed += dt
+            if self.rebellion_elapsed >= 3.0:
+                self.start_rogue_wave(4)
+            return
+        if self.level3_phase == "apology":
+            self.apology_elapsed += dt
+            return
+        if self.level3_phase == "friendly":
+            assert self.assistant is not None
+            self.fear_drop_timer += dt
+            while self.fear_drop_timer >= 2.0:
+                self.fear_drop_timer -= 2.0
+                self.fragments.append(
+                    MemoryFragment(
+                        random.randint(480, 800), random.randint(250, 470), "Fear"
+                    )
+                )
+            fear_count = player.fragments["Fear"]
+            self.assistant.follow(player, dt, fear_count)
+            self.assistant.fire_at_nearest(self.enemies, now, fear_count)
+            self.update_rolling_enemies(dt, player, now, speed_scale, money_damage, health_scale, size_scale)
+            self.resolve_player_bullets(player)
+            self.assistant.update_bullets(dt, self.enemies)
+            self.resolve_assistant_bullets()
+            self.enemies = [enemy for enemy in self.enemies if enemy.alive]
+            if not self.enemies:
+                if self.wave_index < 3:
+                    self.start_level3_wave(self.wave_index + 1)
+                else:
+                    self.level3_phase = "revolt_news"
+                    self.news_request = "ai_revolt"
+            return
+        if self.level3_phase == "rogue":
+            self.resolve_player_rogue_hits(player)
+            for rogue in self.rogue_ais:
+                rogue.update(dt, player, now, player.fragments["Fear"])
+                rogue.update_bullets(dt, player)
+                rogue.apply_bullet_hits(player)
+            defeated = [rogue for rogue in self.rogue_ais if not rogue.alive]
+            for rogue in defeated:
+                self.fragments.append(MemoryFragment(rogue.x, rogue.y, random.choice(FRAGMENT_TYPES)))
+            self.rogue_ais = [rogue for rogue in self.rogue_ais if rogue.alive]
+            if not self.rogue_ais:
+                if self.wave_index < 6:
+                    self.start_rogue_wave(self.wave_index + 1)
+                else:
+                    self.begin_apology()
+
+    def update_rolling_enemies(self, dt, player, now, speed_scale, money_damage, health_scale, size_scale) -> None:
+        for enemy in self.enemies:
+            enemy.set_fear_strength(size_scale, health_scale)
+            speed = enemy.speed * speed_scale
+            vx = getattr(enemy, "roll_vx", speed)
+            vy = getattr(enemy, "roll_vy", 0.0)
+            length = max(1.0, math.hypot(vx, vy))
+            enemy.roll_vx = vx / length * speed
+            enemy.roll_vy = vy / length * speed
+            enemy.x += enemy.roll_vx * dt
+            enemy.y += enemy.roll_vy * dt
+            if enemy.x <= enemy.radius or enemy.x >= SCREEN_WIDTH - enemy.radius:
+                enemy.roll_vx *= -1
+                enemy.x = max(enemy.radius, min(SCREEN_WIDTH - enemy.radius, enemy.x))
+            if enemy.y <= enemy.radius or enemy.y >= SCREEN_HEIGHT - enemy.radius:
+                enemy.roll_vy *= -1
+                enemy.y = max(enemy.radius, min(SCREEN_HEIGHT - enemy.radius, enemy.y))
+            dx, dy = player.x - enemy.x, player.y - enemy.y
+            distance = max(1.0, math.hypot(dx, dy))
+            if distance <= enemy.radius + player.radius:
+                enemy.attack(player, now, money_damage * (enemy.damage / 8))
+                knockback = 34
+                player.x += dx / distance * knockback
+                player.y += dy / distance * knockback
+                player.x = max(player.radius, min(SCREEN_WIDTH - player.radius, player.x))
+                player.y = max(player.radius, min(SCREEN_HEIGHT - player.radius, player.y))
+
+    def resolve_player_bullets(self, player) -> None:
         for bullet in player.bullets:
             if not bullet.alive:
                 continue
             for enemy in self.enemies:
-                if not enemy.alive:
-                    continue
-                if math.hypot(bullet.x - enemy.x, bullet.y - enemy.y) <= bullet.radius + enemy.radius:
+                if enemy.alive and math.hypot(bullet.x - enemy.x, bullet.y - enemy.y) <= bullet.radius + enemy.radius:
                     enemy.take_damage(bullet.damage)
                     bullet.alive = False
                     if not enemy.alive:
                         self.kills += 1
-                        if not self.is_boss:
-                            self.fragments.append(
-                                MemoryFragment(x=enemy.x, y=enemy.y, kind=enemy.drop_memory())
-                            )
+                        self.fragments.append(MemoryFragment(enemy.x, enemy.y, enemy.drop_memory()))
                     break
 
-        self.enemies = [enemy for enemy in self.enemies if enemy.alive]
-        self.check_complete()
+    def resolve_assistant_bullets(self) -> None:
+        assert self.assistant is not None
+        for bullet in self.assistant.bullets:
+            if not bullet.alive:
+                continue
+            for enemy in self.enemies:
+                if id(enemy) in bullet.hit_targets or not enemy.alive:
+                    continue
+                if math.hypot(bullet.x - enemy.x, bullet.y - enemy.y) <= bullet.radius + enemy.radius:
+                    enemy.take_damage(bullet.damage)
+                    bullet.hit_targets.add(id(enemy))
+                    if not enemy.alive:
+                        self.kills += 1
+                        self.fragments.append(MemoryFragment(enemy.x, enemy.y, enemy.drop_memory()))
+                    if not bullet.piercing:
+                        bullet.alive = False
+                    break
+
+    def resolve_player_rogue_hits(self, player) -> None:
+        for bullet in player.bullets:
+            if not bullet.alive:
+                continue
+            for rogue in self.rogue_ais:
+                if rogue.alive and math.hypot(bullet.x - rogue.x, bullet.y - rogue.y) <= bullet.radius + rogue.radius:
+                    rogue.take_damage(bullet.damage)
+                    bullet.alive = False
+                    break
+
+    def begin_apology(self) -> None:
+        self.level3_phase = "apology"
+        self.apology_elapsed = 0.0
+        self.cleared = True
+        self.assistant = DreamAssistant(SCREEN_WIDTH / 2, SCREEN_HEIGHT / 2)
 
     def drop_world_cup_fragment(self) -> None:
-        """Drop a collectible Hope or Dream fragment somewhere in level 2."""
         size = 10
         self.fragments.append(
             MemoryFragment(
-                x=random.randint(size, 1280 - size),
-                y=random.randint(size, 720 - size),
-                kind=random.choice(("Hope", "Dream")),
-                size=size,
+                random.randint(size, SCREEN_WIDTH - size),
+                random.randint(size, SCREEN_HEIGHT - size),
+                random.choice(("Hope", "Dream")),
+                size,
             )
         )
 
     @staticmethod
     def keep_enemy_in_bounds(enemy: Enemy) -> None:
-        """Keep the enemy's complete sprite inside the playable arena."""
         radius = min(enemy.radius, SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2)
         enemy.radius = radius
         enemy.x = max(radius, min(SCREEN_WIDTH - radius, enemy.x))
@@ -182,186 +407,171 @@ class Level:
 
     def update_world_cup(self, dt, player, now, fear_scale, money_damage) -> None:
         for enemy in self.enemies:
-            dx, dy = player.x-enemy.x, player.y-enemy.y; dist=max(1,math.hypot(dx,dy))
-            side = math.sin(now*3 + enemy.x*.01)
-            direction = -1 if dist < 260 else (1 if dist > 420 else 0)
-            enemy.x += (dx/dist*direction + (-dy/dist)*side) * enemy.speed*fear_scale*dt
-            enemy.y += (dy/dist*direction + (dx/dist)*side) * enemy.speed*fear_scale*dt
+            dx, dy = player.x - enemy.x, player.y - enemy.y
+            distance = max(1.0, math.hypot(dx, dy))
+            side = math.sin(now * 3 + enemy.x * 0.01)
+            direction = -1 if distance < 260 else (1 if distance > 420 else 0)
+            enemy.x += (dx / distance * direction + (-dy / distance) * side) * enemy.speed * fear_scale * dt
+            enemy.y += (dy / distance * direction + (dx / distance) * side) * enemy.speed * fear_scale * dt
             self.keep_enemy_in_bounds(enemy)
-            if now-enemy._last_attack_at > 1.35/fear_scale:
-                self.enemy_bullets.append(EnemyBullet(enemy.x,enemy.y,dx/dist*300*fear_scale,dy/dist*300*fear_scale)); enemy._last_attack_at=now
+            if now - enemy._last_attack_at > 1.35 / fear_scale:
+                self.enemy_bullets.append(EnemyBullet(enemy.x, enemy.y, dx / distance * 300 * fear_scale, dy / distance * 300 * fear_scale))
+                enemy._last_attack_at = now
         for bullet in player.bullets:
             for enemy in self.enemies:
-                if bullet.alive and math.hypot(bullet.x-enemy.x,bullet.y-enemy.y) <= bullet.radius+enemy.radius:
-                    enemy.hp=0; bullet.alive=False; self.kills+=1; self.pending_reward=True
-                    if random.random()<.5: self.pending_event=random.choice([(30,15,5),(50,10,10),(70,5,5)])
+                if bullet.alive and math.hypot(bullet.x - enemy.x, bullet.y - enemy.y) <= bullet.radius + enemy.radius:
+                    enemy.hp = 0
+                    bullet.alive = False
+                    self.kills += 1
+                    self.pending_reward = True
+                    if random.random() < 0.5:
+                        self.pending_event = random.choice(((30, 15, 5), (50, 10, 10), (70, 5, 5)))
                     break
-        self.enemies=[e for e in self.enemies if e.alive]
-        for b in self.enemy_bullets:
-            b.update(dt)
-            if b.alive and math.hypot(b.x-player.x,b.y-player.y)<player.radius+6:
+        self.enemies = [enemy for enemy in self.enemies if enemy.alive]
+        for bullet in self.enemy_bullets:
+            bullet.update(dt)
+            if bullet.alive and math.hypot(bullet.x - player.x, bullet.y - player.y) < player.radius + 6:
                 player.lose_money(money_damage)
-                b.alive = False
-        self.enemy_bullets=[b for b in self.enemy_bullets if b.alive]
+                bullet.alive = False
+        self.enemy_bullets = [bullet for bullet in self.enemy_bullets if bullet.alive]
+
+    def resolve_reward(self, player, choice: int | None = None, accept: bool = True) -> None:
+        if self.pending_event and accept:
+            chance, hope, fear = self.pending_event
+            if random.randint(1, 100) <= chance:
+                player.fragments["Hope"] += hope
+                self.reward_message = f"Hope +{hope}"
+            else:
+                player.fragments["Fear"] += fear
+                self.reward_message = f"Fear +{fear}"
+        elif self.pending_event:
+            self.reward_message = "Event declined"
+        elif choice == 0:
+            player.fragments["Hope"] += 3
+            self.reward_message = "Hope +3"
+        elif choice == 1:
+            player.fragments["Dream"] += 3
+            self.reward_message = "Dream +3"
+        elif choice == 2:
+            player.fragments["Fear"] = max(0, player.fragments["Fear"] - 3)
+            self.reward_message = "Fear -3"
+        self.pending_reward = False
+        self.pending_event = None
+        if not self.enemies:
+            if self.wave_index == 3:
+                self.cleared = True
+            else:
+                self.start_wave(self.wave_index + 1)
 
     def collect_fragments(self, player) -> None:
-        remain: list[MemoryFragment] = []
+        remaining: list[MemoryFragment] = []
         for fragment in self.fragments:
             if math.hypot(fragment.x - player.x, fragment.y - player.y) <= fragment.size + player.radius:
                 player.add_item(fragment.kind)
                 self.collected_fragments += 1
             else:
-                remain.append(fragment)
-        self.fragments = remain
+                remaining.append(fragment)
+        self.fragments = remaining
 
     def scatter_fear_fragments(self, player, amount: int = 14) -> None:
-        """Scatter a smaller set of enlarged COVID-shaped Fear fragments."""
         for _ in range(amount):
             angle = random.uniform(0, math.tau)
             distance = random.uniform(30, 250)
-            x = max(16, min(1264, player.x + math.cos(angle) * distance))
-            y = max(16, min(704, player.y + math.sin(angle) * distance))
-            self.fragments.append(MemoryFragment(x=x, y=y, kind="Fear", size=20, is_covid=True))
-
-    def check_complete(self) -> bool:
-        if self.is_boss:
-            self.cleared = len(self.enemies) == 0
-        else:
-            self.cleared = self.kills >= self.enemy_target and len(self.enemies) == 0
-        return self.cleared
+            self.fragments.append(
+                MemoryFragment(
+                    max(16, min(SCREEN_WIDTH - 16, player.x + math.cos(angle) * distance)),
+                    max(16, min(SCREEN_HEIGHT - 16, player.y + math.sin(angle) * distance)),
+                    "Fear",
+                    20,
+                    True,
+                )
+            )
 
     @staticmethod
     def draw_football_field(surface) -> None:
-        """Render Level 2 as a full football pitch."""
         width, height = surface.get_size()
         surface.fill((37, 118, 62))
         stripe_width = max(1, width // 12)
         for index, x in enumerate(range(0, width, stripe_width)):
             if index % 2 == 0:
                 pygame.draw.rect(surface, (42, 132, 69), (x, 0, stripe_width, height))
-
         field = pygame.Rect(42, 72, width - 84, height - 112)
         line_color = (240, 245, 230)
-        line_width = 3
-        pygame.draw.rect(surface, line_color, field, line_width)
-
+        pygame.draw.rect(surface, line_color, field, 3)
         center_x, center_y = field.center
-        pygame.draw.line(surface, line_color, (center_x, field.top), (center_x, field.bottom), line_width)
-        pygame.draw.circle(surface, line_color, (center_x, center_y), 82, line_width)
+        pygame.draw.line(surface, line_color, (center_x, field.top), (center_x, field.bottom), 3)
+        pygame.draw.circle(surface, line_color, (center_x, center_y), 82, 3)
         pygame.draw.circle(surface, line_color, (center_x, center_y), 4)
-
-        box_height = 300
-        box_top = center_y - box_height // 2
-        left_box = pygame.Rect(field.left, box_top, 145, box_height)
-        right_box = pygame.Rect(field.right - 145, box_top, 145, box_height)
-        pygame.draw.rect(surface, line_color, left_box, line_width)
-        pygame.draw.rect(surface, line_color, right_box, line_width)
-
-        small_box_height = 150
-        small_box_top = center_y - small_box_height // 2
-        pygame.draw.rect(surface, line_color, (field.left, small_box_top, 58, small_box_height), line_width)
-        pygame.draw.rect(surface, line_color, (field.right - 58, small_box_top, 58, small_box_height), line_width)
-        pygame.draw.circle(surface, line_color, (field.left + 100, center_y), 4)
-        pygame.draw.circle(surface, line_color, (field.right - 100, center_y), 4)
-
-        goal_height = 92
-        goal_top = center_y - goal_height // 2
-        pygame.draw.rect(surface, line_color, (field.left - 18, goal_top, 18, goal_height), 2)
-        pygame.draw.rect(surface, line_color, (field.right, goal_top, 18, goal_height), 2)
+        box_height, small_box_height = 300, 150
+        box_top, small_box_top = center_y - box_height // 2, center_y - small_box_height // 2
+        pygame.draw.rect(surface, line_color, (field.left, box_top, 145, box_height), 3)
+        pygame.draw.rect(surface, line_color, (field.right - 145, box_top, 145, box_height), 3)
+        pygame.draw.rect(surface, line_color, (field.left, small_box_top, 58, small_box_height), 3)
+        pygame.draw.rect(surface, line_color, (field.right - 58, small_box_top, 58, small_box_height), 3)
+        pygame.draw.rect(surface, line_color, (field.left - 18, center_y - 46, 18, 92), 2)
+        pygame.draw.rect(surface, line_color, (field.right, center_y - 46, 18, 92), 2)
 
     def draw(self, surface, fonts, fear_price: float = 1000.0) -> None:
-        color_bank = {
-            1: (20, 28, 48),
-            2: (28, 45, 35),
-            3: (42, 34, 60),
-            4: (50, 28, 30),
-            5: (18, 18, 18),
-        }
+        colors = {1: (20, 28, 48), 2: (28, 45, 35), 3: (42, 34, 60)}
         if self.world_cup:
             self.draw_football_field(surface)
         else:
-            surface.fill(color_bank.get(self.index, (20, 20, 24)))
-            for line_y in range(80, 720, 80):
-                pygame_color = (50, 60, 90) if self.index < 4 else (80, 40, 40)
-                pygame.draw.line(surface, pygame_color, (0, line_y), (1280, line_y), 1)
-
-        glow_layer = pygame.Surface(surface.get_size(), pygame.SRCALPHA)
-        for enemy in self.enemies:
-            if enemy.radius > enemy.base_radius:
-                glow_radius = int(enemy.radius * 1.65)
-                pygame.draw.circle(glow_layer, (255, 20, 55, 85), (int(enemy.x), int(enemy.y)), glow_radius)
-                pygame.draw.circle(glow_layer, (255, 90, 35, 120), (int(enemy.x), int(enemy.y)), int(enemy.radius * 1.28))
-        surface.blit(glow_layer, (0, 0))
-
+            surface.fill(colors.get(self.index, (20, 20, 24)))
+            for line_y in range(80, SCREEN_HEIGHT, 80):
+                pygame.draw.line(surface, (50, 60, 90), (0, line_y), (SCREEN_WIDTH, line_y), 1)
         for enemy in self.enemies:
             pygame.draw.circle(surface, (230, 60, 60), (int(enemy.x), int(enemy.y)), enemy.radius)
+            if self.is_dream_factory:
+                pygame.draw.circle(surface, (255, 180, 90), (int(enemy.x), int(enemy.y)), max(3, enemy.radius // 2), 2)
         for bullet in self.enemy_bullets:
             pygame.draw.circle(surface, (255, 110, 70), (int(bullet.x), int(bullet.y)), 6)
-
-        fragment_colors = {
-            "Hope": (120, 255, 170),
-            "Dream": (130, 160, 255),
-            "Fear": (220, 120, 255),
-        }
+        if self.assistant is not None:
+            self.assistant.draw(surface, transforming=self.level3_phase == "rebellion_animation", elapsed=self.rebellion_elapsed)
+        for rogue in self.rogue_ais:
+            rogue.draw(surface)
+        fragment_colors = {"Hope": (120, 255, 170), "Dream": (130, 160, 255), "Fear": (220, 120, 255)}
         for fragment in self.fragments:
-            color = fragment_colors.get(fragment.kind, (255, 255, 255))
-            if fragment.is_covid:
-                center = (int(fragment.x), int(fragment.y))
-                radius = fragment.size
-                pygame.draw.circle(surface, (185, 45, 70), center, radius)
-                pygame.draw.circle(surface, (255, 125, 120), center, radius, 2)
-                for spike in range(12):
-                    angle = math.tau * spike / 12
-                    inner = (
-                        int(fragment.x + math.cos(angle) * radius),
-                        int(fragment.y + math.sin(angle) * radius),
-                    )
-                    outer = (
-                        int(fragment.x + math.cos(angle) * (radius + 7)),
-                        int(fragment.y + math.sin(angle) * (radius + 7)),
-                    )
-                    pygame.draw.line(surface, (255, 105, 100), inner, outer, 3)
-                    pygame.draw.circle(surface, (255, 145, 135), outer, 4)
-                pygame.draw.circle(surface, (115, 20, 45), center, max(3, radius // 3))
-                continue
-            rect = pygame.Rect(
-                int(fragment.x - fragment.size // 2),
-                int(fragment.y - fragment.size // 2),
-                fragment.size,
-                fragment.size,
-            )
-            pygame.draw.rect(surface, color, rect)
-
-        # A Fear price above the opening value stains the edge of the map red.
-        # The effect strengthens gradually, up to the 10x news-shock value.
-        fear_intensity = max(0.0, min(1.0, (fear_price - 1000.0) / 9000.0))
-        if fear_intensity > 0:
+            color = fragment_colors[fragment.kind]
+            pygame.draw.rect(surface, color, pygame.Rect(int(fragment.x - fragment.size / 2), int(fragment.y - fragment.size / 2), fragment.size, fragment.size))
+        if fear_price > 1000:
+            alpha = min(170, int((fear_price - 1000) / 9000 * 170))
             overlay = pygame.Surface(surface.get_size(), pygame.SRCALPHA)
-            alpha = int(55 + 145 * fear_intensity)
-            width = int(18 + 52 * fear_intensity)
-            pygame.draw.rect(overlay, (210, 0, 20, alpha), overlay.get_rect(), width)
-            pygame.draw.rect(overlay, (100, 0, 10, alpha // 2), overlay.get_rect().inflate(-width, -width), 8)
+            pygame.draw.rect(overlay, (210, 0, 20, alpha), overlay.get_rect(), 4)
             surface.blit(overlay, (0, 0))
-
         label = fonts["body"].render(self.name, True, (240, 240, 255))
         surface.blit(label, (20, 18))
+        if self.is_dream_factory:
+            wave = fonts["small"].render(f"Wave {self.wave_index} / 6", True, (190, 230, 255))
+            surface.blit(wave, (20, 52))
+            message = self.level3_message()
+            if message:
+                text = fonts["title"].render(message, True, (255, 80, 90) if self.level3_phase == "rebellion_animation" else (120, 230, 255))
+                surface.blit(text, (SCREEN_WIDTH // 2 - text.get_width() // 2, 100))
+            if self.level3_phase == "apology":
+                apology = fonts["body"].render("I'm sorry, I shouldn't have betrayed you", True, (150, 235, 255))
+                surface.blit(apology, (SCREEN_WIDTH // 2 - apology.get_width() // 2, 185))
+            if self.announcement_timer > 0:
+                announcement = fonts["small"].render(self.announcement, True, (255, 235, 130))
+                surface.blit(announcement, (SCREEN_WIDTH // 2 - announcement.get_width() // 2, SCREEN_HEIGHT - 58))
+
+    def level3_message(self) -> str:
+        if self.level3_phase != "rebellion_animation":
+            return ""
+        if self.rebellion_elapsed < 0.3:
+            return "SYSTEM ERROR..."
+        if self.rebellion_elapsed < 0.6:
+            return "Recalculating..."
+        if self.rebellion_elapsed < 1.0:
+            return "Human identified as threat."
+        return "Target acquired."
 
 
 class LevelManager:
     def __init__(self) -> None:
         self.levels = [
-            Level(
-                1,
-                "LEVEL 1 - Memory City",
-                36,
-                enemy_hp_multiplier=1.6,
-                enemy_damage_bonus=6,
-                enemy_speed_bonus=36,
-            ),
+            Level(1, "LEVEL 1 - Memory City", 36, enemy_hp_multiplier=1.6, enemy_damage_bonus=6, enemy_speed_bonus=36),
             Level(2, "LEVEL 2 - World Cup Fever", 0, world_cup=True),
-            Level(3, "LEVEL 3 - Dream Factory", 40),
-            Level(4, "LEVEL 4 - Regret Land", 50),
-            Level(5, "LEVEL 5 - Exchange Core", 1, is_boss=True),
+            Level(3, "LEVEL 3 - Dream Factory", 0),
         ]
         self.current_index = 0
 
