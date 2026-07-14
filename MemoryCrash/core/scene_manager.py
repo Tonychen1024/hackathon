@@ -92,7 +92,7 @@ class MenuScene(Scene):
             context.player.reset_for_new_run()
             context.market.reset()
             self.manager.context.level_manager.set_level(self.selected)
-            next_scene = "BOSS" if self.manager.context.level_manager.current_level.is_boss else "LEVEL"
+            next_scene = "LEVEL2_INTRO" if self.manager.context.level_manager.current_level.world_cup else ("BOSS" if self.manager.context.level_manager.current_level.is_boss else "LEVEL")
             self.manager.change_scene(next_scene)
 
     def draw(self, surface) -> None:
@@ -125,6 +125,7 @@ class CombatScene(Scene):
         self.show_clear = False
         context = self.manager.context
         context.level_manager.current_level.enter()
+        context.market.level_mode = "level2" if context.level_manager.current_level.world_cup else "level1"
         context.player.reset_position(SCREEN_WIDTH / 2, SCREEN_HEIGHT / 2)
 
     def handle_event(self, event) -> None:
@@ -139,7 +140,7 @@ class CombatScene(Scene):
             level_manager = self.manager.context.level_manager
             if level_manager.current_level.cleared:
                 if level_manager.move_next():
-                    scene_name = "BOSS" if level_manager.current_level.is_boss else "LEVEL"
+                    scene_name = "LEVEL2_INTRO" if level_manager.current_level.world_cup else ("BOSS" if level_manager.current_level.is_boss else "LEVEL")
                     self.manager.change_scene(scene_name)
                 else:
                     self.manager.change_scene("GAME_OVER")
@@ -150,14 +151,15 @@ class CombatScene(Scene):
         context.market.update(dt)
         effects = context.market.effects(context.player)
         context.player.apply_fragment_effects(
-            context.player.fragments["Dream"], context.player.fragments["Hope"], dt
+            0 if level.world_cup else context.player.fragments["Dream"],
+            0 if level.world_cup else context.player.fragments["Hope"], dt
         )
 
         keys = pygame.key.get_pressed()
         context.player.handle_movement(keys, dt, SCREEN_WIDTH, SCREEN_HEIGHT)
         if pygame.mouse.get_pressed()[0]:
             mx, my = pygame.mouse.get_pos()
-            context.player.try_shoot(mx, my, pygame.time.get_ticks() / 1000.0, effects["dream_fire_scale"])
+            context.player.try_shoot(mx, my, pygame.time.get_ticks() / 1000.0, effects["dream_fire_scale"], level.world_cup)
 
         context.player.update_bullets(dt, SCREEN_WIDTH, SCREEN_HEIGHT)
 
@@ -171,6 +173,8 @@ class CombatScene(Scene):
             effects["fear_enemy_size"],
         )
         level.collect_fragments(context.player)
+        if level.world_cup and level.pending_reward:
+            self.manager.last_combat_scene = self.combat_scene_name; self.manager.change_scene("PENALTY"); return
         self.show_clear = level.cleared
 
         if (
@@ -196,7 +200,7 @@ class CombatScene(Scene):
         draw_player_effects(surface, context.player)
         pygame.draw.circle(surface, (70, 140, 255), (int(context.player.x), int(context.player.y)), context.player.radius)
         for bullet in context.player.bullets:
-            pygame.draw.circle(surface, (250, 230, 90), (int(bullet.x), int(bullet.y)), bullet.radius)
+            pygame.draw.circle(surface, (245,245,245) if bullet.football else (250,230,90), (int(bullet.x), int(bullet.y)), bullet.radius)
 
         draw_hud(surface, context)
 
@@ -210,6 +214,17 @@ class CombatScene(Scene):
 class LevelScene(CombatScene):
     name = "LEVEL"
     combat_scene_name = "LEVEL"
+
+class Level2IntroScene(Scene):
+    name = "LEVEL2_INTRO"
+    def enter(self, **kwargs): self.remaining=3.0
+    def update(self, dt):
+        self.remaining -= dt
+        if self.remaining <= 0: self.manager.change_scene("LEVEL")
+    def draw(self, surface):
+        surface.fill((14,32,50)); f=self.manager.context.fonts
+        for text,y in (("Now, The World Cup is in full swing,",285),("hold onto your hopes for the country you support!",340)):
+            t=f['body'].render(text,True,(245,240,200)); surface.blit(t,(SCREEN_WIDTH//2-t.get_width()//2,y))
 
 
 class BossScene(CombatScene):
@@ -239,9 +254,13 @@ class MarketScene(Scene):
         elif event.key == pygame.K_DOWN:
             self.selected = min(len(self.stock_names) - 1, self.selected + 1)
         elif event.key == pygame.K_b:
-            context.market.buy_fragment(context.player, self.selected_stock, 1)
+            changed = context.market.buy_fragment(context.player, self.selected_stock, 1)
+            if changed and context.level_manager.current_level.world_cup and not context.market.level2_fee_notice_shown:
+                context.market.level2_fee_notice_shown = True; self.manager.change_scene("FEE_NOTICE")
         elif event.key == pygame.K_s:
-            context.market.sell_fragment(context.player, self.selected_stock, 1)
+            changed = context.market.sell_fragment(context.player, self.selected_stock, 1)
+            if changed and context.level_manager.current_level.world_cup and not context.market.level2_fee_notice_shown:
+                context.market.level2_fee_notice_shown = True; self.manager.change_scene("FEE_NOTICE")
         elif event.key == pygame.K_ESCAPE:
             self.manager.change_scene(self.manager.last_combat_scene, resume=True)
 
@@ -309,6 +328,42 @@ class NewsScene(Scene):
         surface.blit(result, (SCREEN_WIDTH // 2 - result.get_width() // 2, 395))
         surface.blit(tip, (SCREEN_WIDTH // 2 - tip.get_width() // 2, 475))
 
+class PenaltyScene(Scene):
+    name = "PENALTY"
+    def enter(self, **kwargs): self.selected=0
+    def handle_event(self,event):
+        if event.type!=pygame.KEYDOWN:return
+        level=self.manager.context.level_manager.current_level
+        if level.reward_message:
+            if event.key in (pygame.K_RETURN,pygame.K_ESCAPE): level.reward_message=""; self.manager.change_scene("LEVEL",resume=True)
+            return
+        if level.pending_event:
+            if event.key in (pygame.K_y,pygame.K_RETURN): level.resolve_reward(self.manager.context.player,accept=True)
+            elif event.key in (pygame.K_n,pygame.K_ESCAPE): level.resolve_reward(self.manager.context.player,accept=False)
+        else:
+            if event.key==pygame.K_UP:self.selected=max(0,self.selected-1)
+            elif event.key==pygame.K_DOWN:self.selected=min(2,self.selected+1)
+            elif event.key==pygame.K_RETURN: level.resolve_reward(self.manager.context.player,self.selected)
+    def draw(self,surface):
+        f=self.manager.context.fonts; level=self.manager.context.level_manager.current_level; surface.fill((12,28,45))
+        title=f['title'].render('Penalty Shootout',True,(255,230,100)); surface.blit(title,(390,180))
+        if level.reward_message:
+            text=f['title'].render(level.reward_message,True,(255,235,60)); surface.blit(text,(640-text.get_width()//2,330)); tip=f['small'].render('Press ENTER to continue',True,(240,240,255));surface.blit(tip,(640-tip.get_width()//2,410)); return
+        if level.pending_event:
+            c,h,fr=level.pending_event; text=f['body'].render(f'Random Event: {c}% Hope +{h} / {100-c}% Fear +{fr}',True,(240,240,255)); surface.blit(text,(250,290)); tip=f['body'].render('YES (Y)     NO (N)',True,(255,220,140));surface.blit(tip,(430,360))
+        else:
+            for i,t in enumerate(('Hope +3','Dream +3','Fear -3')):
+                x=f['body'].render(('> ' if i==self.selected else '  ')+t,True,(255,230,110) if i==self.selected else (240,240,255));surface.blit(x,(500,280+i*50))
+
+class FeeNoticeScene(Scene):
+    name = "FEE_NOTICE"
+    def handle_event(self,event):
+        if event.type==pygame.KEYDOWN and event.key in (pygame.K_RETURN,pygame.K_ESCAPE): self.manager.change_scene("MARKET")
+    def draw(self,surface):
+        surface.fill((20,20,32)); f=self.manager.context.fonts
+        for text,y in (("You're too fond of stock trading.",290),("There's now a 5% transaction fee.",340),("Press ENTER",420)):
+            t=f['body'].render(text,True,(255,220,130)); surface.blit(t,(SCREEN_WIDTH//2-t.get_width()//2,y))
+
 
 class GameOverScene(Scene):
     name = "GAME_OVER"
@@ -341,6 +396,7 @@ def draw_hud(surface, context: GameContext) -> None:
         f"dream_owned: {player.fragments['Dream']}",
         f"fear_owned: {player.fragments['Fear']}",
     ]
+    if level.world_cup: left_lines.append(f"Remaining Football: {player.fragments['Hope'] + player.fragments['Dream']}")
     for idx, line in enumerate(left_lines):
         txt = fonts["body"].render(line, True, (240, 240, 255))
         surface.blit(txt, (16, 16 + idx * 30))

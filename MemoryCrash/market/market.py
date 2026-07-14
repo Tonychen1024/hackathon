@@ -16,11 +16,32 @@ class Market:
         self._fear_volatility_timer = 0.0
         self.elapsed = 0.0
         self.fear_shocked = False
+        self.level_mode = "level1"
+        self.level2_timer = 0.0
+        self.level2_starts = None
+        self.level2_targets = None
+        self.level2_fee_notice_shown = False
         self.history: dict[str, list[tuple[float, float]]] = {
             name: [(0.0, data["price"])] for name, data in self.stocks.items()
         }
 
     def update(self, dt: float) -> None:
+        if self.level_mode == "level2":
+            self.elapsed += dt; self.level2_timer += dt; self._chart_timer += dt
+            if self.level2_starts is None:
+                self.level2_starts={n:self.stocks[n]['price'] for n in self.stocks}
+                self.level2_targets={"Hope":self.level2_starts['Hope']*random.uniform(1.01,1.03),"Dream":self.level2_starts['Dream']*random.uniform(.95,1.08),"Fear":self.level2_starts['Fear']*random.uniform(.97,.99)}
+            if self.level2_timer >= 10:
+                self.level2_timer -= 10; self.level2_starts={n:self.stocks[n]['price'] for n in self.stocks}
+                self.level2_targets={"Hope":self.level2_starts['Hope']*random.uniform(1.01,1.03),"Dream":self.level2_starts['Dream']*random.uniform(.95,1.08),"Fear":self.level2_starts['Fear']*random.uniform(.97,.99)}
+            progress=min(1.0,self.level2_timer/10)
+            for n in self.stocks: self.stocks[n]['price']=round(self.level2_starts[n]+(self.level2_targets[n]-self.level2_starts[n])*progress,2)
+            while self._chart_timer >= .1-1e-9:
+                self._chart_timer-=.1
+                for n in self.stocks:self.history[n].append((self.elapsed-self._chart_timer,self.stocks[n]['price']))
+            cutoff=self.elapsed-5
+            for n in self.history:self.history[n]=[p for p in self.history[n] if p[0]>=cutoff]
+            return
         self.elapsed += dt
         self._chart_timer += dt
         while self._chart_timer >= 0.1 - 1e-9:
@@ -74,14 +95,15 @@ class Market:
             return False
 
         total = self.stocks[stock_name]["price"] * amount
+        fee = 1.05 if self.level_mode == "level2" else 1.0
         if stock_name == "Fear":
-            player.money += total
+            player.money += total / fee
             player.fragments[stock_name] += amount
             return True
-        if player.money < total:
+        if player.money < total * fee:
             return False
 
-        player.money -= total
+        player.money -= total * fee
         player.fragments[stock_name] += amount
         return True
 
@@ -90,31 +112,36 @@ class Market:
             return False
 
         total = self.stocks[stock_name]["price"] * amount
+        fee = 1.05 if self.level_mode == "level2" else 1.0
         if stock_name == "Fear":
-            if player.fragments.get(stock_name, 0) < amount or player.money < total:
+            if player.fragments.get(stock_name, 0) < amount or player.money < total * fee:
                 return False
             player.sell_fragment(stock_name, amount)
-            player.money -= total
+            player.money -= total * fee
             return True
 
         sold = player.sell_fragment(stock_name, amount)
         if sold <= 0:
             return False
-        player.money += self.stocks[stock_name]["price"] * sold
+        player.money += self.stocks[stock_name]["price"] * sold / fee
         return True
 
     def effects(self, player) -> dict[str, float]:
         hope = player.fragments.get("Hope", 0)
         dream = player.fragments.get("Dream", 0)
         fear = player.fragments.get("Fear", 0)
+        # Enemy hits always take money.  The first two Fear fragments share
+        # the $1,500 tier; from three onward each fragment adds another $500.
+        fear_money_damage = (
+            1000.0 if fear == 0 else 1500.0 if fear <= 2 else 2000.0 + (fear - 3) * 500.0
+        )
         return {
             "dream_shield": min(120.0, dream * 15.0),
             "hope_speed_bonus": min(180.0, hope * 18.0),
             "dream_fire_scale": max(0.35, 1.0 - (0.06 * dream)),
-            # Fear has no ceiling: every additional fragment makes enemies
-            # faster, tougher, more damaging, and visibly larger.
+            # A hit's monetary loss follows the Fear-fragment tiers above.
             "fear_enemy_speed": 1.0 + (0.12 * fear),
-            "fear_enemy_damage": 1.0 + (0.50 * fear),
+            "fear_enemy_damage": fear_money_damage,
             "fear_enemy_health": 1.0 + (0.40 * fear),
             "fear_enemy_size": 1.0 + (0.18 * fear),
         }

@@ -7,6 +7,7 @@ import random
 import math
 import pygame
 
+from config import SCREEN_HEIGHT, SCREEN_WIDTH
 from enemy.enemy import Enemy
 
 
@@ -20,6 +21,13 @@ class MemoryFragment:
     kind: str
     size: int = 10
     is_covid: bool = False
+
+@dataclass
+class EnemyBullet:
+    x: float; y: float; vx: float; vy: float; alive: bool = True
+    def update(self, dt: float) -> None:
+        self.x += self.vx * dt; self.y += self.vy * dt
+        self.alive = 0 <= self.x <= 1280 and 0 <= self.y <= 720
 
 
 @dataclass
@@ -38,6 +46,13 @@ class Level:
     enemy_hp_multiplier: float = 1.0
     enemy_damage_bonus: float = 0.0
     enemy_speed_bonus: float = 0.0
+    world_cup: bool = False
+    wave_index: int = 0
+    enemy_bullets: list[EnemyBullet] = field(default_factory=list)
+    pending_reward: bool = False
+    pending_event: tuple[int, int, int] | None = None
+    reward_message: str = ""
+    fragment_drop_timer: float = 0.0
 
     def enter(self) -> None:
         self.enemies = []
@@ -47,7 +62,30 @@ class Level:
         self.news_triggered = False
         self.collected_fragments = 0
         self.elapsed = 0.0
-        self.spawn_enemy()
+        self.fragment_drop_timer = 0.0
+        self.enemy_bullets = []; self.pending_reward = False; self.pending_event = None; self.reward_message = ""
+        if self.world_cup: self.start_wave(0)
+        else: self.spawn_enemy()
+
+    def start_wave(self, index: int) -> None:
+        self.wave_index = index
+        specs = [(5, 1.0, 1.0), (6, .8, 1.3), (8, .6, 1.7), (1, .5, 2.2)]
+        count, size, speed = specs[index]
+        self.enemies = [Enemy("World Cup Boss" if index == 3 else "Cup Runner", 1, 10, 130 * speed, "", random.randint(80,1200), random.randint(90,650), max(7,int(18*size))) for _ in range(count)]
+
+    def resolve_reward(self, player, choice: int | None = None, accept: bool = True) -> None:
+        if self.pending_event and accept:
+            chance, hope, fear = self.pending_event
+            if random.randint(1,100) <= chance: player.fragments["Hope"] += hope; self.reward_message=f"Hope +{hope}"
+            else: player.fragments["Fear"] += fear; self.reward_message=f"Fear +{fear}"
+        elif self.pending_event: self.reward_message="Event declined"
+        elif choice == 0: player.fragments["Hope"] += 3; self.reward_message="Hope +3"
+        elif choice == 1: player.fragments["Dream"] += 3; self.reward_message="Dream +3"
+        elif choice == 2: player.fragments["Fear"] = max(0, player.fragments["Fear"] - 3); self.reward_message="Fear -3"
+        self.pending_reward = False; self.pending_event = None
+        if not self.enemies:
+            if self.wave_index == 3: self.cleared = True
+            else: self.start_wave(self.wave_index + 1)
 
     def exit(self) -> None:
         self.enemies = []
@@ -84,13 +122,23 @@ class Level:
                 )
             )
 
-    def update(self, dt: float, player, now: float, enemy_speed_multiplier: float, enemy_damage_multiplier: float, enemy_health_multiplier: float, enemy_size_multiplier: float) -> None:
+    def update(self, dt: float, player, now: float, enemy_speed_multiplier: float, enemy_money_damage: float, enemy_health_multiplier: float, enemy_size_multiplier: float) -> None:
         self.elapsed += dt
+        if self.world_cup:
+            self.fragment_drop_timer += dt
+            while self.fragment_drop_timer >= 5.0:
+                self.fragment_drop_timer -= 5.0
+                self.drop_world_cup_fragment()
+            self.update_world_cup(
+                dt, player, now, enemy_speed_multiplier, enemy_money_damage
+            )
+            return
         for enemy in self.enemies:
             enemy.set_fear_strength(enemy_size_multiplier, enemy_health_multiplier)
             enemy.move(dt, player.x, player.y, enemy_speed_multiplier)
+            self.keep_enemy_in_bounds(enemy)
             if math.hypot(enemy.x - player.x, enemy.y - player.y) <= enemy.radius + player.radius:
-                enemy.attack(player, now, enemy_damage_multiplier)
+                enemy.attack(player, now, enemy_money_damage)
 
         for bullet in player.bullets:
             if not bullet.alive:
@@ -111,6 +159,50 @@ class Level:
 
         self.enemies = [enemy for enemy in self.enemies if enemy.alive]
         self.check_complete()
+
+    def drop_world_cup_fragment(self) -> None:
+        """Drop a collectible Hope or Dream fragment somewhere in level 2."""
+        size = 10
+        self.fragments.append(
+            MemoryFragment(
+                x=random.randint(size, 1280 - size),
+                y=random.randint(size, 720 - size),
+                kind=random.choice(("Hope", "Dream")),
+                size=size,
+            )
+        )
+
+    @staticmethod
+    def keep_enemy_in_bounds(enemy: Enemy) -> None:
+        """Keep the enemy's complete sprite inside the playable arena."""
+        radius = min(enemy.radius, SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2)
+        enemy.radius = radius
+        enemy.x = max(radius, min(SCREEN_WIDTH - radius, enemy.x))
+        enemy.y = max(radius, min(SCREEN_HEIGHT - radius, enemy.y))
+
+    def update_world_cup(self, dt, player, now, fear_scale, money_damage) -> None:
+        for enemy in self.enemies:
+            dx, dy = player.x-enemy.x, player.y-enemy.y; dist=max(1,math.hypot(dx,dy))
+            side = math.sin(now*3 + enemy.x*.01)
+            direction = -1 if dist < 260 else (1 if dist > 420 else 0)
+            enemy.x += (dx/dist*direction + (-dy/dist)*side) * enemy.speed*fear_scale*dt
+            enemy.y += (dy/dist*direction + (dx/dist)*side) * enemy.speed*fear_scale*dt
+            self.keep_enemy_in_bounds(enemy)
+            if now-enemy._last_attack_at > 1.35/fear_scale:
+                self.enemy_bullets.append(EnemyBullet(enemy.x,enemy.y,dx/dist*300*fear_scale,dy/dist*300*fear_scale)); enemy._last_attack_at=now
+        for bullet in player.bullets:
+            for enemy in self.enemies:
+                if bullet.alive and math.hypot(bullet.x-enemy.x,bullet.y-enemy.y) <= bullet.radius+enemy.radius:
+                    enemy.hp=0; bullet.alive=False; self.kills+=1; self.pending_reward=True
+                    if random.random()<.5: self.pending_event=random.choice([(30,15,5),(50,10,10),(70,5,5)])
+                    break
+        self.enemies=[e for e in self.enemies if e.alive]
+        for b in self.enemy_bullets:
+            b.update(dt)
+            if b.alive and math.hypot(b.x-player.x,b.y-player.y)<player.radius+6:
+                player.lose_money(money_damage)
+                b.alive = False
+        self.enemy_bullets=[b for b in self.enemy_bullets if b.alive]
 
     def collect_fragments(self, player) -> None:
         remain: list[MemoryFragment] = []
@@ -162,6 +254,8 @@ class Level:
 
         for enemy in self.enemies:
             pygame.draw.circle(surface, (230, 60, 60), (int(enemy.x), int(enemy.y)), enemy.radius)
+        for bullet in self.enemy_bullets:
+            pygame.draw.circle(surface, (255, 110, 70), (int(bullet.x), int(bullet.y)), 6)
 
         fragment_colors = {
             "Hope": (120, 255, 170),
@@ -223,7 +317,7 @@ class LevelManager:
                 enemy_damage_bonus=6,
                 enemy_speed_bonus=36,
             ),
-            Level(2, "LEVEL 2 - Childhood World", 30),
+            Level(2, "LEVEL 2 - World Cup Fever", 0, world_cup=True),
             Level(3, "LEVEL 3 - Dream Factory", 40),
             Level(4, "LEVEL 4 - Regret Land", 50),
             Level(5, "LEVEL 5 - Exchange Core", 1, is_boss=True),

@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import math
-import random
 
 
 @dataclass
@@ -37,12 +36,11 @@ class Enemy:
         self.x += (dx / length) * step
         self.y += (dy / length) * step
 
-    def attack(self, target, now: float = 0.0, damage_scale: float = 1.0) -> None:
+    def attack(self, target, now: float = 0.0, money_damage: float = 1000.0) -> None:
         if now - self._last_attack_at < self.attack_cooldown:
             return
-        # Each hit removes a fluctuating amount of money instead of HP.
-        loss = self.damage * random.uniform(3.0, 6.0) * damage_scale
-        target.lose_money(loss)
+        # Enemy hits take a Fear-scaled, predictable amount of money.
+        target.lose_money(money_damage)
         self._last_attack_at = now
 
     def set_fear_strength(self, size_scale: float, health_scale: float) -> None:

@@ -10,9 +10,12 @@ from core.scene_manager import (
     GameContext,
     GameOverScene,
     LevelScene,
+    Level2IntroScene,
     MarketScene,
     MenuScene,
     NewsScene,
+    PenaltyScene,
+    FeeNoticeScene,
     SceneManager,
 )
 from levels.level_manager import LevelManager
@@ -41,8 +44,11 @@ def main() -> None:
     scene_manager = SceneManager(context)
     scene_manager.register(MenuScene(scene_manager))
     scene_manager.register(LevelScene(scene_manager))
+    scene_manager.register(Level2IntroScene(scene_manager))
     scene_manager.register(MarketScene(scene_manager))
     scene_manager.register(NewsScene(scene_manager))
+    scene_manager.register(PenaltyScene(scene_manager))
+    scene_manager.register(FeeNoticeScene(scene_manager))
     scene_manager.register(BossScene(scene_manager))
     scene_manager.register(GameOverScene(scene_manager))
     scene_manager.change_scene("MENU")

@@ -18,6 +18,7 @@ class Bullet:
     radius: int = 4
     damage: float = PLAYER_BASE_DAMAGE
     alive: bool = True
+    football: bool = False
 
     def update(self, dt: float, width: int, height: int) -> None:
         self.x += self.vx * dt
@@ -36,7 +37,7 @@ class Player:
     # Fragments are the player's tradable resources.  Keep the three keys
     # present so the HUD and market never need to special-case an empty type.
     fragments: dict[str, int] = field(
-        default_factory=lambda: {"Hope": 0, "Dream": 0, "Fear": 0}
+        default_factory=lambda: {"Hope": 3, "Dream": 3, "Fear": 0}
     )
     x: float = 640
     y: float = 360
@@ -61,7 +62,7 @@ class Player:
         self.speed = PLAYER_BASE_SPEED
         self.money = PLAYER_START_MONEY
         self.inventory.clear()
-        self.fragments = {"Hope": 0, "Dream": 0, "Fear": 0}
+        self.fragments = {"Hope": 3, "Dream": 3, "Fear": 0}
         self.shield = 0.0
         self.shield_max = 0.0
         self.trail_intensity = 0.0
@@ -95,16 +96,18 @@ class Player:
         self.x = max(self.radius, min(width - self.radius, self.x))
         self.y = max(self.radius, min(height - self.radius, self.y))
 
-    def try_shoot(self, target_x: float, target_y: float, now: float, cooldown_scale: float = 1.0) -> None:
+    def try_shoot(self, target_x: float, target_y: float, now: float, cooldown_scale: float = 1.0, football: bool = False) -> bool:
         cooldown = max(0.06, self.fire_cooldown * cooldown_scale)
         if now - self.last_shot_at < cooldown:
-            return
+            return False
+        if football and not self.consume_football():
+            return False
 
         direction_x = target_x - self.x
         direction_y = target_y - self.y
         length = math.hypot(direction_x, direction_y)
         if length <= 0:
-            return
+            return False
 
         speed = 500
         self.bullets.append(
@@ -113,10 +116,21 @@ class Player:
                 y=self.y,
                 vx=(direction_x / length) * speed,
                 vy=(direction_y / length) * speed,
-                damage=self.damage,
+                damage=self.damage, radius=10 if football else 4, football=football,
             )
         )
         self.last_shot_at = now
+        return True
+
+    def consume_football(self) -> bool:
+        for name in ("Dream", "Hope"):
+            if self.fragments[name] > 0:
+                self.fragments[name] -= 1
+                return True
+        return False
+
+    def take_damage(self, value: float) -> None:
+        self.hp = max(0.0, self.hp - value)
 
     def update_bullets(self, dt: float, width: int, height: int) -> None:
         for bullet in self.bullets:
