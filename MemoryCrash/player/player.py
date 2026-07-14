@@ -59,6 +59,7 @@ class Player:
     def reset_for_new_run(self) -> None:
         """Restore all player-owned gameplay state before a fresh level run."""
         self.hp = PLAYER_BASE_HP
+        self.damage = PLAYER_BASE_DAMAGE
         self.speed = PLAYER_BASE_SPEED
         self.money = PLAYER_START_MONEY
         self.inventory.clear()
@@ -66,6 +67,7 @@ class Player:
         self.shield = 0.0
         self.shield_max = 0.0
         self.trail_intensity = 0.0
+        self.last_shot_at = -999.0
         self.bullets.clear()
         self.trail.clear()
 

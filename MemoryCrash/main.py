@@ -16,6 +16,7 @@ from core.scene_manager import (
     NewsScene,
     PenaltyScene,
     FeeNoticeScene,
+    TransactionLimitScene,
     SceneManager,
 )
 from levels.level_manager import LevelManager
@@ -49,6 +50,7 @@ def main() -> None:
     scene_manager.register(NewsScene(scene_manager))
     scene_manager.register(PenaltyScene(scene_manager))
     scene_manager.register(FeeNoticeScene(scene_manager))
+    scene_manager.register(TransactionLimitScene(scene_manager))
     scene_manager.register(BossScene(scene_manager))
     scene_manager.register(GameOverScene(scene_manager))
     scene_manager.change_scene("MENU")

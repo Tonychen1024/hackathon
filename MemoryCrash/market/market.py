@@ -5,6 +5,9 @@ from __future__ import annotations
 import random
 
 
+LEVEL1_TRANSACTION_LIMIT = 100
+
+
 class Market:
     def __init__(self) -> None:
         self.stocks: dict[str, dict[str, float]] = {
@@ -21,6 +24,7 @@ class Market:
         self.level2_starts = None
         self.level2_targets = None
         self.level2_fee_notice_shown = False
+        self.level1_transaction_count = 0
         self.history: dict[str, list[tuple[float, float]]] = {
             name: [(0.0, data["price"])] for name, data in self.stocks.items()
         }
@@ -87,11 +91,26 @@ class Market:
         """Restore opening prices, chart data, and event state for a new run."""
         self.__init__()
 
+    @property
+    def level1_transaction_limit_reached(self) -> bool:
+        return (
+            self.level_mode == "level1"
+            and self.level1_transaction_count >= LEVEL1_TRANSACTION_LIMIT
+        )
+
+    def record_transaction(self) -> None:
+        if self.level_mode == "level1":
+            self.level1_transaction_count += 1
+
     def recent_history(self, stock_name: str, seconds: float = 5.0) -> list[tuple[float, float]]:
         return [point for point in self.history[stock_name] if point[0] >= self.elapsed - seconds]
 
     def buy_fragment(self, player, stock_name: str, amount: int = 1) -> bool:
-        if stock_name not in self.stocks or amount <= 0:
+        if (
+            stock_name not in self.stocks
+            or amount <= 0
+            or self.level1_transaction_limit_reached
+        ):
             return False
 
         total = self.stocks[stock_name]["price"] * amount
@@ -99,16 +118,22 @@ class Market:
         if stock_name == "Fear":
             player.money += total / fee
             player.fragments[stock_name] += amount
+            self.record_transaction()
             return True
         if player.money < total * fee:
             return False
 
         player.money -= total * fee
         player.fragments[stock_name] += amount
+        self.record_transaction()
         return True
 
     def sell_fragment(self, player, stock_name: str, amount: int = 1) -> bool:
-        if stock_name not in self.stocks or amount <= 0:
+        if (
+            stock_name not in self.stocks
+            or amount <= 0
+            or self.level1_transaction_limit_reached
+        ):
             return False
 
         total = self.stocks[stock_name]["price"] * amount
@@ -118,12 +143,14 @@ class Market:
                 return False
             player.sell_fragment(stock_name, amount)
             player.money -= total * fee
+            self.record_transaction()
             return True
 
         sold = player.sell_fragment(stock_name, amount)
         if sold <= 0:
             return False
         player.money += self.stocks[stock_name]["price"] * sold / fee
+        self.record_transaction()
         return True
 
     def effects(self, player) -> dict[str, float]:
