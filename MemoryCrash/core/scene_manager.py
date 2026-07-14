@@ -236,6 +236,7 @@ class CombatScene(Scene):
         draw_money_health_bar(surface, context.player)
         for bullet in context.player.bullets:
             pygame.draw.circle(surface, (245,245,245) if bullet.football else (250,230,90), (int(bullet.x), int(bullet.y)), bullet.radius)
+        level.draw_combat_effects(surface)
 
         draw_hud(surface, context)
 

@@ -48,7 +48,7 @@ class DreamAssistant:
     """An invulnerable friendly drone which follows and supports the player."""
 
     radius = 13
-    fire_interval = 1 / 3
+    fire_interval = 1 / 5
     bullet_damage = 10
 
     def __init__(self, x: float, y: float) -> None:
@@ -84,7 +84,7 @@ class DreamAssistant:
         target = min(alive, key=lambda enemy: math.hypot(enemy.x - self.x, enemy.y - self.y))
         dx, dy = target.x - self.x, target.y - self.y
         distance = max(1.0, math.hypot(dx, dy))
-        speed = 760 + fear_count * 45
+        speed = 1000 + fear_count * 55
         damage = self.bullet_damage * (1 + fear_count * 0.12)
         self.bullets.append(AIBullet(self.x, self.y, dx / distance * speed, dy / distance * speed, damage, (255, 230, 70), piercing=True))
         self.last_shot_at = now
@@ -123,7 +123,7 @@ class RogueAIEnemy:
     """A hostile autonomous drone for Dream Factory waves 4 through 6."""
 
     radius = 16
-    fire_interval = 1 / 3
+    fire_interval = 1 / 5
 
     def __init__(self, x: float, y: float, hp: float, damage: float, formation_offset: float = 0.0, use_formation: bool = False) -> None:
         self.x = x
@@ -139,6 +139,7 @@ class RogueAIEnemy:
         self.use_formation = use_formation
         self.last_shot_at = -999.0
         self.bullets: list[AIBullet] = []
+        self.hit_flash = 0.0
 
     @property
     def alive(self) -> bool:
@@ -169,7 +170,7 @@ class RogueAIEnemy:
         self.x = max(self.radius, min(SCREEN_WIDTH - self.radius, self.x))
         self.y = max(self.radius, min(SCREEN_HEIGHT - self.radius, self.y))
         if now - self.last_shot_at >= self.fire_interval:
-            speed = 520 + fear_count * 30
+            speed = 800 + fear_count * 45
             shot_dx, shot_dy = player.x - self.x, player.y - self.y
             shot_distance = max(1.0, math.hypot(shot_dx, shot_dy))
             self.bullets.append(AIBullet(self.x, self.y, shot_dx / shot_distance * speed, shot_dy / shot_distance * speed, self.damage, (255, 55, 65), lifetime=4.0))
@@ -180,19 +181,26 @@ class RogueAIEnemy:
             bullet.update(dt, player.x, player.y)
         self.bullets = [bullet for bullet in self.bullets if bullet.alive]
 
-    def apply_bullet_hits(self, player) -> None:
+    def apply_bullet_hits(self, player) -> list[tuple[float, float]]:
+        hits: list[tuple[float, float]] = []
         for bullet in self.bullets:
             if bullet.alive and math.hypot(bullet.x - player.x, bullet.y - player.y) <= bullet.radius + player.radius:
                 player.lose_money(bullet.damage)
+                hits.append((bullet.x, bullet.y))
                 bullet.alive = False
+        return hits
 
     def draw(self, surface) -> None:
         layer = pygame.Surface(surface.get_size(), pygame.SRCALPHA)
-        pygame.draw.circle(layer, (255, 35, 55, 125), (int(self.x), int(self.y)), self.radius + 22)
+        pygame.draw.circle(layer, (255, 245, 190, 145) if self.hit_flash > 0 else (255, 35, 55, 125), (int(self.x), int(self.y)), self.radius + 22)
         surface.blit(layer, (0, 0))
         points = [(self.x + math.cos(math.tau * index / 6) * self.radius, self.y + math.sin(math.tau * index / 6) * self.radius) for index in range(6)]
-        pygame.draw.polygon(surface, (245, 55, 65), points)
+        core = (255, 245, 190) if self.hit_flash > 0 else (245, 55, 65)
+        pygame.draw.polygon(surface, core, points)
         pygame.draw.polygon(surface, (255, 205, 210), points, 2)
+        for index in range(4):
+            angle = math.tau * index / 4 + math.pi / 4
+            pygame.draw.circle(surface, (255, 50, 65), (int(self.x + math.cos(angle) * (self.radius + 9)), int(self.y + math.sin(angle) * (self.radius + 9))), 4)
         for bullet in self.bullets:
             pygame.draw.circle(surface, (35, 0, 8), (int(bullet.x), int(bullet.y)), bullet.radius + 2)
             pygame.draw.circle(surface, bullet.color, (int(bullet.x), int(bullet.y)), bullet.radius, 2)

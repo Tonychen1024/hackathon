@@ -40,6 +40,15 @@ class EnemyBullet:
 
 
 @dataclass
+class CombatEffect:
+    x: float
+    y: float
+    kind: str
+    lifetime: float = 0.28
+    max_lifetime: float = 0.28
+
+
+@dataclass
 class Level:
     index: int
     name: str
@@ -70,6 +79,7 @@ class Level:
     news_request: str | None = None
     announcement: str = ""
     announcement_timer: float = 0.0
+    combat_effects: list[CombatEffect] = field(default_factory=list)
 
     @property
     def is_dream_factory(self) -> bool:
@@ -104,6 +114,7 @@ class Level:
         self.news_request = None
         self.announcement = ""
         self.announcement_timer = 0.0
+        self.combat_effects.clear()
 
         if self.is_dream_factory:
             self.wave_index = 0
@@ -161,7 +172,7 @@ class Level:
         self.enemies.clear()
         self.rogue_ais.clear()
         counts = {4: 1, 5: 3, 6: 5}
-        damage = {4: 6, 5: 8, 6: 10}[wave]
+        damage = {4: 9, 5: 13, 6: 17}[wave]
         if wave == 4 and self.assistant is not None:
             positions = [(self.assistant.x, self.assistant.y)]
             self.assistant = None
@@ -174,7 +185,7 @@ class Level:
             RogueAIEnemy(
                 x,
                 y,
-                hp=5,
+                hp=12,
                 damage=damage,
                 formation_offset=(index - (counts[wave] - 1) / 2) * 82 if wave >= 5 else 0,
                 use_formation=wave >= 5,
@@ -232,6 +243,7 @@ class Level:
         enemy_size_multiplier: float,
     ) -> None:
         self.elapsed += dt
+        self.update_combat_effects(dt)
         if self.is_dream_factory:
             self.update_dream_factory(
                 dt,
@@ -308,7 +320,8 @@ class Level:
             for rogue in self.rogue_ais:
                 rogue.update(dt, player, now, player.fragments["Fear"])
                 rogue.update_bullets(dt, player)
-                rogue.apply_bullet_hits(player)
+                for hit_x, hit_y in rogue.apply_bullet_hits(player):
+                    self.add_combat_effect(hit_x, hit_y, "player_hit")
             defeated = [rogue for rogue in self.rogue_ais if not rogue.alive]
             for rogue in defeated:
                 self.fragments.append(MemoryFragment(rogue.x, rogue.y, random.choice(FRAGMENT_TYPES)))
@@ -337,16 +350,21 @@ class Level:
                 enemy.roll_vy *= -1
                 enemy.y = max(enemy.radius, min(SCREEN_HEIGHT - enemy.radius, enemy.y))
             if self.assistant is not None:
-                self.bounce_assistant_from_enemy(self.assistant, enemy)
+                if self.bounce_assistant_from_enemy(self.assistant, enemy):
+                    ai_collision_damage = money_damage * (enemy.damage / 8) / 3
+                    if enemy.attack(player, now, ai_collision_damage):
+                        self.add_combat_effect(self.assistant.x, self.assistant.y, "ai_hit")
             dx, dy = player.x - enemy.x, player.y - enemy.y
             distance = max(1.0, math.hypot(dx, dy))
             if distance <= enemy.radius + player.radius:
-                enemy.attack(player, now, money_damage * (enemy.damage / 8))
-                knockback = 34
-                player.x += dx / distance * knockback
-                player.y += dy / distance * knockback
-                player.x = max(player.radius, min(SCREEN_WIDTH - player.radius, player.x))
-                player.y = max(player.radius, min(SCREEN_HEIGHT - player.radius, player.y))
+                impact_damage = money_damage * (enemy.damage / 8)
+                if enemy.attack(player, now, impact_damage):
+                    self.add_combat_effect(player.x, player.y, "blood")
+                    knockback = 34
+                    player.x += dx / distance * knockback
+                    player.y += dy / distance * knockback
+                    player.x = max(player.radius, min(SCREEN_WIDTH - player.radius, player.x))
+                    player.y = max(player.radius, min(SCREEN_HEIGHT - player.radius, player.y))
 
     def drop_dispersed_fear_fragment(self) -> None:
         """Place each timed Fear fragment across the whole arena, not its centre."""
@@ -364,13 +382,13 @@ class Level:
         )
 
     @staticmethod
-    def bounce_assistant_from_enemy(assistant: DreamAssistant, enemy: Enemy) -> None:
+    def bounce_assistant_from_enemy(assistant: DreamAssistant, enemy: Enemy) -> bool:
         """The assistant is invulnerable but is physically pushed by rolling enemies."""
         dx, dy = assistant.x - enemy.x, assistant.y - enemy.y
         distance = math.hypot(dx, dy)
         minimum = assistant.radius + enemy.radius
         if distance >= minimum:
-            return
+            return False
         if distance < 0.1:
             dx, dy, distance = 1.0, 0.0, 1.0
         push = minimum - distance + 16
@@ -378,6 +396,17 @@ class Level:
         assistant.y = max(assistant.radius, min(SCREEN_HEIGHT - assistant.radius, assistant.y + dy / distance * push))
         enemy.roll_vx *= -1
         enemy.roll_vy *= -1
+        return True
+
+    def update_combat_effects(self, dt: float) -> None:
+        for effect in self.combat_effects:
+            effect.lifetime -= dt
+        self.combat_effects = [effect for effect in self.combat_effects if effect.lifetime > 0]
+        for target in [*self.enemies, *self.rogue_ais]:
+            target.hit_flash = max(0.0, getattr(target, "hit_flash", 0.0) - dt)
+
+    def add_combat_effect(self, x: float, y: float, kind: str) -> None:
+        self.combat_effects.append(CombatEffect(x, y, kind))
 
     def resolve_player_bullets(self, player) -> None:
         for bullet in player.bullets:
@@ -387,6 +416,8 @@ class Level:
                 if enemy.alive and math.hypot(bullet.x - enemy.x, bullet.y - enemy.y) <= bullet.radius + enemy.radius:
                     enemy.take_damage(bullet.damage)
                     bullet.alive = False
+                    enemy.hit_flash = 0.14
+                    self.add_combat_effect(enemy.x, enemy.y, "enemy_hit")
                     if not enemy.alive:
                         self.kills += 1
                         self.fragments.append(MemoryFragment(enemy.x, enemy.y, enemy.drop_memory()))
@@ -402,6 +433,8 @@ class Level:
                     continue
                 if math.hypot(bullet.x - enemy.x, bullet.y - enemy.y) <= bullet.radius + enemy.radius:
                     enemy.take_damage(bullet.damage)
+                    enemy.hit_flash = 0.14
+                    self.add_combat_effect(enemy.x, enemy.y, "enemy_hit")
                     bullet.hit_targets.add(id(enemy))
                     if not enemy.alive:
                         self.kills += 1
@@ -418,6 +451,8 @@ class Level:
                 if rogue.alive and math.hypot(bullet.x - rogue.x, bullet.y - rogue.y) <= bullet.radius + rogue.radius:
                     rogue.take_damage(bullet.damage)
                     bullet.alive = False
+                    rogue.hit_flash = 0.14
+                    self.add_combat_effect(rogue.x, rogue.y, "enemy_hit")
                     break
 
     def begin_apology(self) -> None:
@@ -559,7 +594,8 @@ class Level:
             for line_y in range(80, SCREEN_HEIGHT, 80):
                 pygame.draw.line(surface, (50, 60, 90), (0, line_y), (SCREEN_WIDTH, line_y), 1)
         for enemy in self.enemies:
-            pygame.draw.circle(surface, (230, 60, 60), (int(enemy.x), int(enemy.y)), enemy.radius)
+            color = (255, 245, 190) if getattr(enemy, "hit_flash", 0.0) > 0 else (230, 60, 60)
+            pygame.draw.circle(surface, color, (int(enemy.x), int(enemy.y)), enemy.radius)
             if self.is_dream_factory:
                 pygame.draw.circle(surface, (255, 180, 90), (int(enemy.x), int(enemy.y)), max(3, enemy.radius // 2), 2)
         for bullet in self.enemy_bullets:
@@ -603,6 +639,28 @@ class Level:
         if self.rebellion_elapsed < 1.0:
             return "Human identified as threat."
         return "Target acquired."
+
+    def draw_combat_effects(self, surface) -> None:
+        """Draw brief blood, spark, and hit-flash particles over combatants."""
+        layer = pygame.Surface(surface.get_size(), pygame.SRCALPHA)
+        for effect in self.combat_effects:
+            ratio = max(0.0, effect.lifetime / effect.max_lifetime)
+            if effect.kind == "blood":
+                for index in range(7):
+                    angle = math.tau * index / 7
+                    distance = (1 - ratio) * 30 + 5
+                    x = int(effect.x + math.cos(angle) * distance)
+                    y = int(effect.y + math.sin(angle) * distance)
+                    pygame.draw.circle(layer, (235, 35, 45, int(220 * ratio)), (x, y), max(2, int(5 * ratio)))
+            elif effect.kind == "player_hit":
+                pygame.draw.circle(layer, (255, 65, 75, int(220 * ratio)), (int(effect.x), int(effect.y)), int(10 + (1 - ratio) * 25), 3)
+            elif effect.kind == "ai_hit":
+                pygame.draw.circle(layer, (70, 225, 255, int(230 * ratio)), (int(effect.x), int(effect.y)), int(10 + (1 - ratio) * 25), 3)
+                pygame.draw.circle(layer, (210, 250, 255, int(190 * ratio)), (int(effect.x), int(effect.y)), 5)
+            else:
+                pygame.draw.circle(layer, (255, 235, 100, int(230 * ratio)), (int(effect.x), int(effect.y)), int(8 + (1 - ratio) * 22), 3)
+                pygame.draw.circle(layer, (255, 255, 235, int(180 * ratio)), (int(effect.x), int(effect.y)), 4)
+        surface.blit(layer, (0, 0))
 
 
 class LevelManager:

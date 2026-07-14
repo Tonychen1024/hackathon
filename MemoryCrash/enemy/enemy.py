@@ -36,12 +36,13 @@ class Enemy:
         self.x += (dx / length) * step
         self.y += (dy / length) * step
 
-    def attack(self, target, now: float = 0.0, money_damage: float = 1000.0) -> None:
+    def attack(self, target, now: float = 0.0, money_damage: float = 1000.0) -> bool:
         if now - self._last_attack_at < self.attack_cooldown:
-            return
+            return False
         # Enemy hits take a Fear-scaled, predictable amount of money.
         target.lose_money(money_damage)
         self._last_attack_at = now
+        return True
 
     def set_fear_strength(self, size_scale: float, health_scale: float) -> None:
         self.radius = max(1, int(self.base_radius * size_scale))
