@@ -204,11 +204,27 @@ class MenuScene(Scene):
     def draw(self, surface) -> None:
         draw_screen_background(surface)
         fonts = self.manager.context.fonts
-        draw_panel(surface, pygame.Rect(152, 70, 976, 570), border=UI_ACCENT, fill=(16, 27, 49), radius=22)
+        draw_panel(surface, pygame.Rect(152 - 25, 70, 976 + 50, 570), border=UI_ACCENT, fill=(16, 27, 49), radius=22)
         draw_centered_text(surface, fonts["title"], TITLE.upper(), UI_TEXT, (SCREEN_WIDTH // 2, 135))
         draw_centered_text(surface, fonts["small"], "A MEMORY-DRIVEN MARKET SURVIVAL GAME", UI_ACCENT, (SCREEN_WIDTH // 2, 178))
         draw_section_label(surface, fonts["small"], "SELECT A SCENARIO", (226, 222))
 
+        # Keep the timeline in the narrow left gutter so it lines up with each
+        # scenario without competing with the card text.
+        timeline_x = 208
+        timeline_year_x = 170
+        timeline_points = (303 - 3, 399 - 3, 495 - 3)
+        timeline_years = ("2019", "2026", "2050")
+        draw_centered_text(surface, fonts["small"], "PAST", UI_MUTED, (timeline_year_x, 269 - 3))
+        pygame.draw.line(surface, UI_BORDER, (timeline_x, 284), (timeline_x, 514), 2)
+        for point_y, year in zip(timeline_points, timeline_years):
+            pygame.draw.circle(surface, UI_ACCENT, (timeline_x, point_y), 7)
+            pygame.draw.circle(surface, UI_BG, (timeline_x, point_y), 3)
+            pygame.draw.line(surface, UI_BORDER, (timeline_x + 7, point_y), (220, point_y), 1)
+            draw_centered_text(surface, fonts["small"], year, UI_TEXT, (timeline_year_x, point_y))
+        draw_centered_text(surface, fonts["small"], "FUTURE", UI_MUTED, (timeline_year_x + 4, 533))
+
+        
         descriptions = (
             "Survive the first wave of unstable memories.",
             "Enter the World Cup market with limited trades.",
