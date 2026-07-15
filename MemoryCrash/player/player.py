@@ -25,16 +25,20 @@ class Bullet:
     damage: float = PLAYER_BASE_DAMAGE
     alive: bool = True
     football: bool = False
+    rotation: float = 0.0
 
     def update(self, dt: float, width: int, height: int) -> None:
         self.x += self.vx * dt
         self.y += self.vy * dt
+        if self.football:
+            self.rotation = (self.rotation + 720.0 * dt) % 360.0
         if self.x < 0 or self.x > width or self.y < 0 or self.y > height:
             self.alive = False
 
 
 @dataclass
 class Player:
+    FRAGMENT_CAP = 30
     hp: float = PLAYER_BASE_HP
     damage: float = PLAYER_BASE_DAMAGE
     speed: float = PLAYER_BASE_SPEED
@@ -56,12 +60,19 @@ class Player:
     trail: list[tuple[float, float]] = field(default_factory=list)
     trail_intensity: float = 0.0
     invulnerability_timer: float = 0.0
+    facing_x: float = 1.0
+    facing_y: float = 0.0
+    dash_effects: list[tuple[float, float, float]] = field(default_factory=list)
+
+    DASH_DISTANCE = 180.0
+    DASH_INVULNERABILITY_SECONDS = 0.35
 
     def reset_position(self, x: float, y: float) -> None:
         self.x = x
         self.y = y
         self.bullets.clear()
         self.trail.clear()
+        self.dash_effects.clear()
 
     def reset_for_new_run(self) -> None:
         """Restore all player-owned gameplay state before a fresh level run."""
@@ -75,9 +86,12 @@ class Player:
         self.shield_max = 0.0
         self.trail_intensity = 0.0
         self.invulnerability_timer = 0.0
+        self.facing_x = 1.0
+        self.facing_y = 0.0
         self.last_shot_at = -999.0
         self.bullets.clear()
         self.trail.clear()
+        self.dash_effects.clear()
 
     def reset_for_level_two(self) -> None:
         """Reset for Level 2 with its fixed Hope and Dream starting supply."""
@@ -108,8 +122,10 @@ class Player:
 
         if dx != 0 or dy != 0:
             length = math.hypot(dx, dy)
-            self.x += (dx / length) * self.speed * dt
-            self.y += (dy / length) * self.speed * dt
+            self.facing_x = dx / length
+            self.facing_y = dy / length
+            self.x += self.facing_x * self.speed * dt
+            self.y += self.facing_y * self.speed * dt
             if self.trail_intensity > 0:
                 self.trail.append((self.x, self.y))
                 self.trail = self.trail[-24:]
@@ -117,7 +133,32 @@ class Player:
             self.trail = self.trail[-8:]
 
         self.x = max(self.radius, min(width - self.radius, self.x))
-        self.y = max(self.radius, min(height - self.radius, self.y))
+        self.y = max(self.radius + 20, min(height - self.radius, self.y))
+
+    def try_dash(self, keys, width: int, height: int) -> bool:
+        """Dash along the current movement direction, spending Dream before Hope."""
+        if not self.consume_dash_resource():
+            return False
+
+        dx = (1 if keys[pygame.K_d] else 0) - (1 if keys[pygame.K_a] else 0)
+        dy = (1 if keys[pygame.K_s] else 0) - (1 if keys[pygame.K_w] else 0)
+        if dx != 0 or dy != 0:
+            length = math.hypot(dx, dy)
+            self.facing_x = dx / length
+            self.facing_y = dy / length
+
+        start_x, start_y = self.x, self.y
+        self.x = max(self.radius, min(width - self.radius, self.x + self.facing_x * self.DASH_DISTANCE))
+        self.y = max(self.radius, min(height - self.radius, self.y + self.facing_y * self.DASH_DISTANCE))
+        for step in range(1, 7):
+            progress = step / 7
+            self.dash_effects.append((
+                start_x + (self.x - start_x) * progress,
+                start_y + (self.y - start_y) * progress,
+                0.28 * progress,
+            ))
+        self.grant_invulnerability(self.DASH_INVULNERABILITY_SECONDS)
+        return True
 
     def try_shoot(self, target_x: float, target_y: float, now: float, cooldown_scale: float = 1.0, football: bool = False) -> bool:
         cooldown = max(0.06, self.fire_cooldown * cooldown_scale)
@@ -139,13 +180,19 @@ class Player:
                 y=self.y,
                 vx=(direction_x / length) * speed,
                 vy=(direction_y / length) * speed,
-                damage=self.damage, radius=10 if football else 4, football=football,
+                damage=self.damage,
+                radius=13 if football else 4,
+                football=football,
+                rotation=math.degrees(math.atan2(direction_y, direction_x)),
             )
         )
         self.last_shot_at = now
         return True
 
     def consume_football(self) -> bool:
+        return self.consume_dash_resource()
+
+    def consume_dash_resource(self) -> bool:
         for name in ("Dream", "Hope"):
             if self.fragments[name] > 0:
                 self.fragments[name] -= 1
@@ -163,6 +210,11 @@ class Player:
 
     def update_invulnerability(self, dt: float) -> None:
         self.invulnerability_timer = max(0.0, self.invulnerability_timer - dt)
+        self.dash_effects = [
+            (x, y, lifetime - dt)
+            for x, y, lifetime in self.dash_effects
+            if lifetime > dt
+        ]
 
     @property
     def is_invulnerable(self) -> bool:
@@ -186,11 +238,19 @@ class Player:
     def heal(self, value: float) -> None:
         self.hp = min(PLAYER_BASE_HP, self.hp + value)
 
-    def add_item(self, item_name: str) -> None:
+    def add_item(self, item_name: str) -> bool:
         if item_name in self.fragments:
-            self.fragments[item_name] += 1
-            return
+            return self.add_fragment(item_name) > 0
         self.inventory.append(item_name)
+        return True
+
+    def add_fragment(self, fragment_name: str, amount: int = 1) -> int:
+        """Add fragments without allowing any resource to exceed its cap."""
+        if fragment_name not in self.fragments or amount <= 0:
+            return 0
+        added = min(amount, max(0, self.FRAGMENT_CAP - self.fragments[fragment_name]))
+        self.fragments[fragment_name] += added
+        return added
 
     def sell_fragment(self, fragment_name: str, amount: int = 1) -> int:
         owned = self.fragments.get(fragment_name, 0)

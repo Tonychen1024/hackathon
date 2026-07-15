@@ -180,6 +180,7 @@ class Market:
             stock_name not in self.stocks
             or amount <= 0
             or self.level1_transaction_limit_reached
+            or player.fragments.get(stock_name, 0) + amount > player.FRAGMENT_CAP
         ):
             return False
 
@@ -187,14 +188,14 @@ class Market:
         fee = 1.05 if self.level_mode == "level2" else 1.0
         if stock_name == "Fear":
             player.money += total / fee
-            player.fragments[stock_name] += amount
+            player.add_fragment(stock_name, amount)
             self.record_transaction()
             return True
         if player.money < total * fee:
             return False
 
         player.money -= total * fee
-        player.fragments[stock_name] += amount
+        player.add_fragment(stock_name, amount)
         self.record_transaction()
         return True
 

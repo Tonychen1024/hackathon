@@ -627,19 +627,19 @@ class Level:
         if self.pending_event and accept:
             chance, hope, fear = self.pending_event
             if random.randint(1, 100) <= chance:
-                player.fragments["Hope"] += hope
-                self.reward_message = f"Hope +{hope}"
+                added = player.add_fragment("Hope", hope)
+                self.reward_message = f"Hope +{added}" if added else "Hope capacity reached"
             else:
-                player.fragments["Fear"] += fear
-                self.reward_message = f"Fear +{fear}"
+                added = player.add_fragment("Fear", fear)
+                self.reward_message = f"Fear +{added}" if added else "Fear capacity reached"
         elif self.pending_event:
             self.reward_message = "Event declined"
         elif choice == 0:
-            player.fragments["Hope"] += 3
-            self.reward_message = "Hope +3"
+            added = player.add_fragment("Hope", 3)
+            self.reward_message = f"Hope +{added}" if added else "Hope capacity reached"
         elif choice == 1:
-            player.fragments["Dream"] += 3
-            self.reward_message = "Dream +3"
+            added = player.add_fragment("Dream", 3)
+            self.reward_message = f"Dream +{added}" if added else "Dream capacity reached"
         elif choice == 2:
             player.fragments["Fear"] = max(0, player.fragments["Fear"] - 3)
             self.reward_message = "Fear -3"
@@ -655,8 +655,10 @@ class Level:
         remaining: list[MemoryFragment] = []
         for fragment in self.fragments:
             if math.hypot(fragment.x - player.x, fragment.y - player.y) <= fragment.size + player.radius:
-                player.add_item(fragment.kind)
-                self.collected_fragments += 1
+                if player.add_item(fragment.kind):
+                    self.collected_fragments += 1
+                else:
+                    remaining.append(fragment)
             else:
                 remaining.append(fragment)
         self.fragments = remaining

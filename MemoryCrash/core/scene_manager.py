@@ -297,7 +297,11 @@ class CombatScene(Scene):
 
         if self.is_paused or event.type != pygame.KEYDOWN:
             return
-        if event.key == pygame.K_TAB:
+        if event.key == pygame.K_SPACE:
+            self.manager.context.player.try_dash(
+                pygame.key.get_pressed(), SCREEN_WIDTH, SCREEN_HEIGHT
+            )
+        elif event.key == pygame.K_TAB:
             self.manager.last_combat_scene = self.combat_scene_name
             self.manager.change_scene("MARKET")
         elif event.key == pygame.K_ESCAPE:
@@ -391,7 +395,10 @@ class CombatScene(Scene):
         pygame.draw.circle(surface, (70, 140, 255), (int(context.player.x), int(context.player.y)), context.player.radius)
         draw_money_health_bar(surface, context.player)
         for bullet in context.player.bullets:
-            pygame.draw.circle(surface, (245,245,245) if bullet.football else (250,230,90), (int(bullet.x), int(bullet.y)), bullet.radius)
+            if bullet.football:
+                draw_rotating_football(surface, bullet)
+            else:
+                pygame.draw.circle(surface, (250, 230, 90), (int(bullet.x), int(bullet.y)), bullet.radius)
         level.draw_combat_effects(surface)
 
         draw_hud(surface, context)
@@ -429,10 +436,11 @@ class LevelScene(CombatScene):
 
 class Level2IntroScene(Scene):
     name = "LEVEL2_INTRO"
-    def enter(self, **kwargs): self.remaining=3.0
-    def update(self, dt):
-        self.remaining -= dt
-        if self.remaining <= 0: self.manager.change_scene("LEVEL")
+
+    def handle_event(self, event) -> None:
+        if event.type == pygame.KEYDOWN and event.key in (pygame.K_RETURN, pygame.K_SPACE):
+            self.manager.change_scene("LEVEL")
+
     def draw(self, surface):
         draw_screen_background(surface, UI_HOPE)
         f = self.manager.context.fonts
@@ -440,7 +448,7 @@ class Level2IntroScene(Scene):
         draw_centered_text(surface, f["title"], "WORLD CUP", UI_GOLD, (SCREEN_WIDTH // 2, 275))
         draw_centered_text(surface, f["body"], "The World Cup is in full swing.", UI_TEXT, (SCREEN_WIDTH // 2, 343))
         draw_centered_text(surface, f["body"], "Hold onto the hopes for the country you support.", UI_TEXT, (SCREEN_WIDTH // 2, 385))
-        draw_centered_text(surface, f["small"], f"KICK-OFF IN {max(0, math.ceil(self.remaining))}", UI_HOPE, (SCREEN_WIDTH // 2, 448))
+        draw_centered_text(surface, f["small"], "PRESS ENTER OR SPACE TO KICK OFF", UI_HOPE, (SCREEN_WIDTH // 2, 448))
 
 
 class MarketScene(Scene):
@@ -467,6 +475,9 @@ class MarketScene(Scene):
         elif event.key == pygame.K_b:
             if context.market.level1_transaction_limit_reached:
                 self.manager.change_scene("TRANSACTION_LIMIT")
+                return
+            if context.player.fragments.get(self.selected_stock, 0) >= context.player.FRAGMENT_CAP:
+                self.manager.change_scene("FRAGMENT_LIMIT", fragment_name=self.selected_stock)
                 return
             changed = context.market.buy_fragment(context.player, self.selected_stock, 1)
             if changed and context.level_manager.current_level.world_cup and not context.market.level2_fee_notice_shown:
@@ -515,11 +526,13 @@ class MarketScene(Scene):
             draw_centered_text(surface, fonts["body"], stock_name[0], UI_BG, icon.center)
             name = fonts["body"].render(stock_name.upper(), True, UI_TEXT)
             surface.blit(name, (card.x + 98, card.y + 18))
-            detail = fonts["small"].render(effect_text[stock_name], True, UI_MUTED)
-            surface.blit(detail, (card.x + 98, card.y + 52))
+            #detail = fonts["small"].render(effect_text[stock_name], True, UI_MUTED)
+            #surface.blit(detail, (card.x + 98, card.y + 52))
             price = fonts["body"].render(f"${data['price']:,.0f}", True, accent)
             surface.blit(price, (card.right - price.get_width() - 24, card.y + 18))
-            owned = fonts["small"].render(f"OWNED  {context.player.fragments.get(stock_name, 0)}", True, UI_TEXT)
+            owned = fonts["small"].render(
+                f"OWNED  {context.player.fragments.get(stock_name, 0)} / {context.player.FRAGMENT_CAP}", True, UI_TEXT
+            )
             surface.blit(owned, (card.right - owned.get_width() - 24, card.y + 57))
 
         draw_price_chart(surface, context, pygame.Rect(668, 134, 552, 458))
@@ -648,6 +661,26 @@ class TransactionLimitScene(Scene):
         draw_centered_text(surface, fonts["small"], "PRESS ENTER TO RETURN TO THE MARKET", UI_MUTED, (card.centerx, card.y + 175))
 
 
+class FragmentLimitScene(Scene):
+    name = "FRAGMENT_LIMIT"
+
+    def enter(self, **kwargs) -> None:
+        self.fragment_name = kwargs.get("fragment_name", "this")
+
+    def handle_event(self, event) -> None:
+        if event.type == pygame.KEYDOWN and event.key in (pygame.K_RETURN, pygame.K_ESCAPE, pygame.K_SPACE):
+            self.manager.change_scene("MARKET")
+
+    def draw(self, surface) -> None:
+        draw_screen_background(surface, UI_GOLD)
+        fonts = self.manager.context.fonts
+        card = pygame.Rect(300, 245, 680, 230)
+        draw_panel(surface, card, border=UI_GOLD, fill=(50, 40, 25), radius=20)
+        draw_centered_text(surface, fonts["title"], "FRAGMENT CAP REACHED", UI_GOLD, (card.centerx, card.y + 64))
+        draw_centered_text(surface, fonts["body"], f"You already own 30 {self.fragment_name} fragments.", UI_TEXT, (card.centerx, card.y + 122))
+        draw_centered_text(surface, fonts["small"], "SELL SOME FIRST, THEN TRY AGAIN", UI_MUTED, (card.centerx, card.y + 175))
+
+
 class GameOverScene(Scene):
     name = "GAME_OVER"
 
@@ -702,7 +735,7 @@ def draw_hud(surface, context: GameContext) -> None:
     level = context.level_manager.current_level
     # Keep combat information readable while letting the arena remain visible.
     hud_surface = pygame.Surface(surface.get_size(), pygame.SRCALPHA)
-    left = pygame.Rect(16, 14, 286, 154 if level.world_cup else 134)
+    left = pygame.Rect(16, 14, 286, 154)
     draw_panel(hud_surface, left, border=(64, 92, 144), fill=(13, 24, 43), radius=12)
     title = fonts["small"].render(f"LEVEL {level.index}  //  {level.name.split('-')[-1].strip().upper()}", True, UI_ACCENT)
     hud_surface.blit(title, (left.x + 14, left.y + 12))
@@ -721,6 +754,8 @@ def draw_hud(surface, context: GameContext) -> None:
     elif level.is_dream_factory:
         text = fonts["small"].render(f"WAVE {level.wave_index} / 6", True, UI_GOLD)
         hud_surface.blit(text, (left.x + 16, left.y + 112))
+    dash_hint = fonts["small"].render("SPACE  DASH  •  DREAM -> HOPE", True, UI_MUTED)
+    hud_surface.blit(dash_hint, (left.x + 16, left.y + 132))
 
     right = pygame.Rect(SCREEN_WIDTH - 250, 14, 234, 113)
     draw_panel(hud_surface, right, border=(64, 92, 144), fill=(13, 24, 43), radius=12)
@@ -751,6 +786,15 @@ def draw_player_effects(surface, player: Player) -> None:
             pygame.draw.circle(trail_surface, (255, 225, 80, alpha), (int(x), int(y)), max(1, radius // 2))
         surface.blit(trail_surface, (0, 0))
 
+    if player.dash_effects:
+        dash_surface = pygame.Surface(surface.get_size(), pygame.SRCALPHA)
+        for x, y, lifetime in player.dash_effects:
+            alpha = int(255 * lifetime / 0.28)
+            radius = int(10 + 18 * lifetime / 0.28)
+            pygame.draw.circle(dash_surface, (125, 169, 255, alpha), (int(x), int(y)), radius)
+            pygame.draw.circle(dash_surface, (238, 244, 255, alpha), (int(x), int(y)), max(3, radius // 3))
+        surface.blit(dash_surface, (0, 0))
+
     if player.shield_max > 0:
         ratio = player.shield / player.shield_max if player.shield_max else 0.0
         width = max(1, min(8, int(1 + player.shield_max / 20)))
@@ -763,6 +807,32 @@ def draw_player_effects(surface, player: Player) -> None:
         pygame.draw.circle(shield_surface, (255, 255, 255, 65), center, player.radius + 11)
         pygame.draw.circle(shield_surface, (255, 255, 255, 230), center, player.radius + 11, 2)
         surface.blit(shield_surface, (0, 0))
+
+
+def draw_rotating_football(surface, bullet) -> None:
+    """Draw a high-contrast, spinning black-and-white football projectile."""
+    center = (int(bullet.x), int(bullet.y))
+    radius = bullet.radius
+    rotation = math.radians(bullet.rotation)
+
+    def pentagon(x: float, y: float, size: float, angle: float) -> list[tuple[int, int]]:
+        return [
+            (
+                int(x + math.cos(angle + math.tau * index / 5 - math.pi / 2) * size),
+                int(y + math.sin(angle + math.tau * index / 5 - math.pi / 2) * size),
+            )
+            for index in range(5)
+        ]
+
+    pygame.draw.circle(surface, (255, 255, 255), center, radius)
+    pygame.draw.circle(surface, (18, 25, 38), center, radius, 2)
+    pygame.draw.polygon(surface, (18, 25, 38), pentagon(*center, radius * 0.36, rotation))
+    for index in range(5):
+        angle = rotation + math.tau * index / 5
+        patch_x = center[0] + math.cos(angle) * radius * 0.58
+        patch_y = center[1] + math.sin(angle) * radius * 0.58
+        pygame.draw.line(surface, (68, 76, 91), center, (int(patch_x), int(patch_y)), 1)
+        pygame.draw.polygon(surface, (18, 25, 38), pentagon(patch_x, patch_y, radius * 0.20, rotation + angle))
 
 
 def draw_money_health_bar(surface, player: Player) -> None:

@@ -16,6 +16,7 @@ from core.scene_manager import (
     NewsScene,
     PenaltyScene,
     FeeNoticeScene,
+    FragmentLimitScene,
     TransactionLimitScene,
     SceneManager,
 )
@@ -69,6 +70,7 @@ def main() -> None:
     scene_manager.register(PenaltyScene(scene_manager))
     scene_manager.register(FeeNoticeScene(scene_manager))
     scene_manager.register(TransactionLimitScene(scene_manager))
+    scene_manager.register(FragmentLimitScene(scene_manager))
     scene_manager.register(GameOverScene(scene_manager))
     scene_manager.register(EndingScene(scene_manager))
     scene_manager.change_scene("MENU")
