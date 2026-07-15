@@ -313,9 +313,10 @@ class Level:
         if self.level3_phase == "rebellion_animation":
             if self.rebellion_elapsed == 0.0 and audio:
                 audio.play("ai_transform")
-                audio.set_combat_ambience(3, rebel=True)
             self.rebellion_elapsed += dt
             if self.rebellion_elapsed >= 3.0:
+                if audio:
+                    audio.set_combat_ambience(3, rebel=True)
                 self.start_rogue_wave(4)
             return
         if self.level3_phase == "apology":

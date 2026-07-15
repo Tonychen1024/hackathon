@@ -186,7 +186,7 @@ class MenuScene(Scene):
 
     def enter(self, **kwargs) -> None:
         _ = kwargs
-        self.manager.context.audio.stop_ambience()
+        self.manager.context.audio.stop_all()
         self.selected = self.manager.context.level_manager.current_index
 
     def start_selected_level(self) -> None:
@@ -583,6 +583,7 @@ class NewsScene(Scene):
 
     def enter(self, **kwargs) -> None:
         _ = kwargs
+        self.manager.context.audio.pause_ambience()
         self.news_kind = self.manager.context.level_manager.current_level.news_request or "covid"
 
     def handle_event(self, event) -> None:
@@ -629,6 +630,7 @@ class PenaltyScene(Scene):
     name = "PENALTY"
     def enter(self, **kwargs):
         self.selected=0
+        self.manager.context.audio.pause_ambience()
         self.manager.context.audio.play("penalty_cheer")
     def handle_event(self,event):
         if event.type!=pygame.KEYDOWN:return
@@ -721,6 +723,10 @@ class FragmentLimitScene(Scene):
 class GameOverScene(Scene):
     name = "GAME_OVER"
 
+    def enter(self, **kwargs) -> None:
+        _ = kwargs
+        self.manager.context.audio.stop_all()
+
     def handle_event(self, event) -> None:
         if event.type == pygame.KEYDOWN and event.key == pygame.K_RETURN:
             player = self.manager.context.player
@@ -739,6 +745,9 @@ class GameOverScene(Scene):
 
 
 class EndingScene(Scene):
+    def enter(self, **kwargs) -> None:
+        _ = kwargs
+        self.manager.context.audio.stop_all()
     name = "ENDING"
 
     def handle_event(self, event) -> None:

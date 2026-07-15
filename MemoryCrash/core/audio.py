@@ -79,6 +79,7 @@ class AudioManager:
         }
         crowd_file = Path(__file__).resolve().parent.parent / "assets" / "Generate_a_seamless__#2-1784087027035.mp3"
         penalty_file = Path(__file__).resolve().parent.parent / "assets" / "air-horn-club-sample_heugSrA.mp3"
+        rogue_file = Path(__file__).resolve().parent.parent / "assets" / "Fast,_hyper-dense_me_#3-1784088824912.mp3"
         try:
             sounds["stadium_chant"] = pygame.mixer.Sound(str(crowd_file))
             sounds["stadium_chant"].set_volume(0.72)
@@ -88,6 +89,11 @@ class AudioManager:
         try:
             sounds["penalty_cheer"] = pygame.mixer.Sound(str(penalty_file))
             sounds["penalty_cheer"].set_volume(0.78)
+        except pygame.error:
+            pass
+        try:
+            sounds["rogue_machines"] = pygame.mixer.Sound(str(rogue_file))
+            sounds["rogue_machines"].set_volume(0.60)
         except pygame.error:
             pass
         return sounds
@@ -116,4 +122,10 @@ class AudioManager:
     def stop_ambience(self) -> None:
         if self.enabled and self.ambience_channel:
             self.ambience_channel.stop()
+        self.current_ambience = None
+
+    def stop_all(self) -> None:
+        """Silence effects and ambience when gameplay has fully ended."""
+        if self.enabled:
+            pygame.mixer.stop()
         self.current_ambience = None
