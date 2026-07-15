@@ -59,6 +59,24 @@ def draw_centered_text(surface, font, text: str, color: tuple[int, int, int], ce
     surface.blit(label, label.get_rect(center=center))
 
 
+def calculate_level_score(context: "GameContext") -> float:
+    """Calculate the combat-clear score from the current fragment portfolio."""
+    fragments = context.player.fragments
+    prices = context.market.stocks
+    '''
+    print(f"Calculating score: {fragments.get('Hope', 0)=}, {prices['Hope']['price']=}")
+    print(f"Calculating score: {fragments.get('Dream', 0)=}, {prices['Dream']['price']=}")
+    print(f"Calculating score: {fragments.get('Fear', 0)=}, {prices['Fear']['price']=}")
+    '''
+    return (
+        context.player.money
+        + fragments.get("Hope", 0) * prices["Hope"]["price"]
+        + fragments.get("Dream", 0) * prices["Dream"]["price"]
+        - fragments.get("Fear", 0) * prices["Fear"]["price"]
+    )
+    
+
+
 def draw_centered_wrapped_text(
     surface, font, text: str, color: tuple[int, int, int], center_x: int, top: int, max_width: int, line_gap: int = 7
 ) -> int:
@@ -257,6 +275,7 @@ class CombatScene(Scene):
     def __init__(self, manager: "SceneManager") -> None:
         super().__init__(manager)
         self.show_clear = False
+        self.clear_score: float | None = None
         self.is_paused = False
 
     def enter(self, **kwargs) -> None:
@@ -264,6 +283,7 @@ class CombatScene(Scene):
             self.manager.context.player.grant_invulnerability()
             return
         self.show_clear = False
+        self.clear_score = None
         self.is_paused = False
         context = self.manager.context
         context.level_manager.current_level.enter()
@@ -365,6 +385,10 @@ class CombatScene(Scene):
             context.ending_manager.start_ai_apology()
             self.manager.change_scene("ENDING")
             return
+        if level.cleared and self.clear_score is None:
+            # Lock the score at the instant combat is won; market prices may
+            # continue changing while the clear dialog is on screen.
+            self.clear_score = calculate_level_score(context)
         self.show_clear = level.cleared
 
         if (
@@ -426,7 +450,9 @@ class CombatScene(Scene):
         if self.show_clear and not level.is_dream_factory:
             modal = pygame.Rect(SCREEN_WIDTH // 2 - 260, 250, 520, 190)
             draw_panel(surface, modal, border=UI_GOLD, fill=(48, 43, 30), radius=18)
-            draw_centered_text(surface, context.fonts["title"], "LEVEL CLEAR", UI_GOLD, (modal.centerx, modal.y + 63))
+            score = self.clear_score if self.clear_score is not None else 0.0
+            draw_centered_text(surface, context.fonts["title"], "SCORE", UI_GOLD, (modal.centerx, modal.y + 48))
+            draw_centered_text(surface, context.fonts["body"], f"{score:,.0f}", UI_TEXT, (modal.centerx, modal.y + 91))
             draw_centered_text(surface, context.fonts["small"], "PRESS ENTER TO CONTINUE", UI_TEXT, (modal.centerx, modal.y + 127))
 
 
