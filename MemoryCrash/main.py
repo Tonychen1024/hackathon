@@ -5,6 +5,7 @@ from __future__ import annotations
 import pygame
 
 from config import FPS, SCREEN_HEIGHT, SCREEN_WIDTH, TITLE
+from core.audio import AudioManager
 from core.scene_manager import (
     EndingScene,
     GameContext,
@@ -43,6 +44,7 @@ def draw_return_to_menu_confirmation(surface, fonts: dict) -> None:
 
 def main() -> None:
     pygame.init()
+    audio = AudioManager()
     pygame.display.set_caption(TITLE)
     screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT), pygame.RESIZABLE)
     game_surface = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT))
@@ -60,6 +62,7 @@ def main() -> None:
         market=Market(),
         fonts=fonts,
         ending_manager=EndingManager(),
+        audio=audio,
     )
     scene_manager = SceneManager(context)
     scene_manager.register(MenuScene(scene_manager))
@@ -110,6 +113,11 @@ def main() -> None:
 
             if event.type == pygame.QUIT:
                 context.running = False
+            elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+                context.audio.play("button")
+                if hasattr(event, "pos"):
+                    event = pygame.event.Event(event.type, {**event.dict, "pos": to_game_coordinates(event.pos)})
+                scene_manager.handle_event(event)
             elif event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE and scene_manager.current_scene and scene_manager.current_scene.name == "LEVEL":
                 return_to_menu_confirmation = True
             elif event.type == pygame.VIDEORESIZE:

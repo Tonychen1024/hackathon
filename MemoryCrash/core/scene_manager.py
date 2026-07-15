@@ -7,6 +7,7 @@ import math
 import pygame
 
 from config import SCREEN_HEIGHT, SCREEN_WIDTH, TITLE
+from core.audio import AudioManager
 from core.ending_manager import EndingManager
 from levels.level_manager import LevelManager
 from market.market import Market
@@ -146,6 +147,7 @@ class GameContext:
     market: Market
     fonts: dict
     ending_manager: EndingManager
+    audio: AudioManager
     running: bool = True
     mouse_position: tuple[int, int] = (SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2)
 
@@ -184,6 +186,7 @@ class MenuScene(Scene):
 
     def enter(self, **kwargs) -> None:
         _ = kwargs
+        self.manager.context.audio.stop_ambience()
         self.selected = self.manager.context.level_manager.current_index
 
     def start_selected_level(self) -> None:
@@ -281,6 +284,7 @@ class CombatScene(Scene):
     def enter(self, **kwargs) -> None:
         if kwargs.get("resume", False):
             self.manager.context.player.grant_invulnerability()
+            self.manager.context.audio.resume_ambience()
             return
         self.show_clear = False
         self.clear_score = None
@@ -291,6 +295,7 @@ class CombatScene(Scene):
         context.market.level_mode = "level2" if level.world_cup else ("level3" if level.is_dream_factory else "level1")
         context.player.reset_position(SCREEN_WIDTH / 2, SCREEN_HEIGHT / 2)
         context.player.grant_invulnerability(LEVEL_START_INVULNERABILITY_SECONDS)
+        context.audio.set_combat_ambience(level.index)
         if level.is_dream_factory:
             context.market.trigger_ai_adoption()
             self.manager.last_combat_scene = self.combat_scene_name
@@ -359,7 +364,9 @@ class CombatScene(Scene):
         context.player.handle_movement(keys, dt, SCREEN_WIDTH, SCREEN_HEIGHT)
         if pygame.mouse.get_pressed()[0]:
             mx, my = context.mouse_position
-            context.player.try_shoot(mx, my, pygame.time.get_ticks() / 1000.0, effects["dream_fire_scale"], level.world_cup)
+            if context.player.try_shoot(mx, my, pygame.time.get_ticks() / 1000.0, effects["dream_fire_scale"], level.world_cup):
+                if level.world_cup:
+                    context.audio.play("whoosh")
 
         context.player.update_bullets(dt, SCREEN_WIDTH, SCREEN_HEIGHT)
 
@@ -371,6 +378,7 @@ class CombatScene(Scene):
             effects["fear_enemy_damage"],
             effects["fear_enemy_health"],
             effects["fear_enemy_size"],
+            context.audio,
         )
         level.collect_fragments(context.player)
         if level.world_cup and level.pending_reward:
@@ -482,6 +490,7 @@ class MarketScene(Scene):
 
     def enter(self, **kwargs) -> None:
         _ = kwargs
+        self.manager.context.audio.pause_ambience()
         self.stock_names = ["Dream", "Hope", "Fear"]
         self.selected = 0
 
@@ -618,7 +627,9 @@ class NewsScene(Scene):
 
 class PenaltyScene(Scene):
     name = "PENALTY"
-    def enter(self, **kwargs): self.selected=0
+    def enter(self, **kwargs):
+        self.selected=0
+        self.manager.context.audio.play("penalty_cheer")
     def handle_event(self,event):
         if event.type!=pygame.KEYDOWN:return
         level=self.manager.context.level_manager.current_level

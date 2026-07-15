@@ -257,6 +257,7 @@ class Level:
         enemy_money_damage: float,
         enemy_health_multiplier: float,
         enemy_size_multiplier: float,
+        audio=None,
     ) -> None:
         self.elapsed += dt
         self.update_combat_effects(dt)
@@ -269,13 +270,14 @@ class Level:
                 enemy_money_damage,
                 enemy_health_multiplier,
                 enemy_size_multiplier,
+                audio,
             )
         elif self.world_cup:
             self.fragment_drop_timer += dt
             while self.fragment_drop_timer >= 5.0:
                 self.fragment_drop_timer -= 5.0
                 self.drop_world_cup_fragment()
-            self.update_world_cup(dt, player, now, enemy_speed_multiplier, enemy_money_damage)
+            self.update_world_cup(dt, player, now, enemy_speed_multiplier, enemy_money_damage, audio)
         else:
             self.update_normal(
                 dt,
@@ -285,9 +287,10 @@ class Level:
                 enemy_money_damage,
                 enemy_health_multiplier,
                 enemy_size_multiplier,
+                audio,
             )
 
-    def update_normal(self, dt, player, now, speed_scale, money_damage, health_scale, size_scale) -> None:
+    def update_normal(self, dt, player, now, speed_scale, money_damage, health_scale, size_scale, audio=None) -> None:
         for enemy in self.enemies:
             enemy.set_fear_strength(size_scale, health_scale)
             enemy.move(dt, player.x, player.y, speed_scale)
@@ -296,17 +299,21 @@ class Level:
         self.resolve_entity_collisions(self.enemies)
         for enemy in self.enemies:
             if math.hypot(enemy.x - player.x, enemy.y - player.y) <= enemy.radius + player.radius:
-                enemy.attack(player, now, money_damage)
+                if enemy.attack(player, now, money_damage) and audio:
+                    audio.play("hit_heavy")
 
-        self.resolve_player_bullets(player)
+        self.resolve_player_bullets(player, audio)
         self.enemies = [enemy for enemy in self.enemies if enemy.alive]
         self.cleared = self.kills >= self.enemy_target and not self.enemies
 
-    def update_dream_factory(self, dt, player, now, speed_scale, money_damage, health_scale, size_scale) -> None:
+    def update_dream_factory(self, dt, player, now, speed_scale, money_damage, health_scale, size_scale, audio=None) -> None:
         self.announcement_timer = max(0.0, self.announcement_timer - dt)
         if self.level3_phase in {"intro", "revolt_news"}:
             return
         if self.level3_phase == "rebellion_animation":
+            if self.rebellion_elapsed == 0.0 and audio:
+                audio.play("ai_transform")
+                audio.set_combat_ambience(3, rebel=True)
             self.rebellion_elapsed += dt
             if self.rebellion_elapsed >= 3.0:
                 self.start_rogue_wave(4)
@@ -323,10 +330,10 @@ class Level:
             fear_count = player.fragments["Fear"]
             self.assistant.follow(player, dt, fear_count)
             self.assistant.fire_at_nearest(self.enemies, now, fear_count)
-            self.update_rolling_enemies(dt, player, now, speed_scale, money_damage, health_scale, size_scale)
-            self.resolve_player_bullets(player)
+            self.update_rolling_enemies(dt, player, now, speed_scale, money_damage, health_scale, size_scale, audio)
+            self.resolve_player_bullets(player, audio)
             self.assistant.update_bullets(dt, self.enemies)
-            self.resolve_assistant_bullets()
+            self.resolve_assistant_bullets(audio)
             self.enemies = [enemy for enemy in self.enemies if enemy.alive]
             if not self.enemies:
                 if self.wave_index < 3:
@@ -341,12 +348,14 @@ class Level:
                 if self.rogue_wave_delay == 0:
                     self.start_rogue_wave(self.wave_index + 1)
                 return
-            self.resolve_player_rogue_hits(player)
+            self.resolve_player_rogue_hits(player, audio)
             for rogue in self.rogue_ais:
                 rogue.update(dt, player, now, player.fragments["Fear"])
                 rogue.update_bullets(dt, player)
                 for hit_x, hit_y in rogue.apply_bullet_hits(player):
                     self.add_combat_effect(hit_x, hit_y, "player_hit")
+                    if audio:
+                        audio.play("hit_heavy")
             self.resolve_entities_and_player_collisions(self.rogue_ais, player)
             defeated = [rogue for rogue in self.rogue_ais if not rogue.alive]
             for rogue in defeated:
@@ -358,7 +367,7 @@ class Level:
                 else:
                     self.begin_apology()
 
-    def update_rolling_enemies(self, dt, player, now, speed_scale, money_damage, health_scale, size_scale) -> None:
+    def update_rolling_enemies(self, dt, player, now, speed_scale, money_damage, health_scale, size_scale, audio=None) -> None:
         for enemy in self.enemies:
             enemy.set_fear_strength(size_scale, health_scale)
             speed = enemy.speed * speed_scale
@@ -381,6 +390,8 @@ class Level:
                     ai_collision_damage = money_damage * (enemy.damage / 8) / 3
                     if enemy.attack(player, now, ai_collision_damage):
                         self.add_combat_effect(self.assistant.x, self.assistant.y, "ai_hit")
+                        if audio:
+                            audio.play("hit_heavy")
 
         for enemy in self.enemies:
             dx, dy = player.x - enemy.x, player.y - enemy.y
@@ -389,6 +400,8 @@ class Level:
                 impact_damage = money_damage * (enemy.damage / 8)
                 if enemy.attack(player, now, impact_damage):
                     self.add_combat_effect(player.x, player.y, "blood")
+                    if audio:
+                        audio.play("hit_heavy")
                     knockback = 34
                     player.x += dx / distance * knockback
                     player.y += dy / distance * knockback
@@ -521,7 +534,7 @@ class Level:
     def add_combat_effect(self, x: float, y: float, kind: str) -> None:
         self.combat_effects.append(CombatEffect(x, y, kind))
 
-    def resolve_player_bullets(self, player) -> None:
+    def resolve_player_bullets(self, player, audio=None) -> None:
         for bullet in player.bullets:
             if not bullet.alive:
                 continue
@@ -531,12 +544,14 @@ class Level:
                     bullet.alive = False
                     enemy.hit_flash = 0.14
                     self.add_combat_effect(enemy.x, enemy.y, "enemy_hit")
+                    if audio:
+                        audio.play("hit_light")
                     if not enemy.alive:
                         self.kills += 1
                         self.fragments.append(MemoryFragment(enemy.x, enemy.y, enemy.drop_memory()))
                     break
 
-    def resolve_assistant_bullets(self) -> None:
+    def resolve_assistant_bullets(self, audio=None) -> None:
         assert self.assistant is not None
         for bullet in self.assistant.bullets:
             if not bullet.alive:
@@ -548,6 +563,8 @@ class Level:
                     enemy.take_damage(bullet.damage)
                     enemy.hit_flash = 0.14
                     self.add_combat_effect(enemy.x, enemy.y, "enemy_hit")
+                    if audio:
+                        audio.play("hit_light")
                     bullet.hit_targets.add(id(enemy))
                     if not enemy.alive:
                         self.kills += 1
@@ -556,7 +573,7 @@ class Level:
                         bullet.alive = False
                     break
 
-    def resolve_player_rogue_hits(self, player) -> None:
+    def resolve_player_rogue_hits(self, player, audio=None) -> None:
         for bullet in player.bullets:
             if not bullet.alive:
                 continue
@@ -566,6 +583,8 @@ class Level:
                     bullet.alive = False
                     rogue.hit_flash = 0.14
                     self.add_combat_effect(rogue.x, rogue.y, "enemy_hit")
+                    if audio:
+                        audio.play("hit_light")
                     break
 
     def begin_apology(self) -> None:
@@ -592,7 +611,7 @@ class Level:
         enemy.x = max(radius, min(SCREEN_WIDTH - radius, enemy.x))
         enemy.y = max(radius, min(SCREEN_HEIGHT - radius, enemy.y))
 
-    def update_world_cup(self, dt, player, now, fear_scale, money_damage) -> None:
+    def update_world_cup(self, dt, player, now, fear_scale, money_damage, audio=None) -> None:
         for enemy in self.enemies:
             dx, dy = player.x - enemy.x, player.y - enemy.y
             distance = max(1.0, math.hypot(dx, dy))
@@ -610,6 +629,8 @@ class Level:
                 if bullet.alive and math.hypot(bullet.x - enemy.x, bullet.y - enemy.y) <= bullet.radius + enemy.radius:
                     enemy.hp = 0
                     bullet.alive = False
+                    if audio:
+                        audio.play("hit_light")
                     self.kills += 1
                     self.pending_reward = True
                     if random.random() < 0.5:
@@ -621,6 +642,8 @@ class Level:
             if bullet.alive and math.hypot(bullet.x - player.x, bullet.y - player.y) < player.radius + 6:
                 player.lose_money(money_damage)
                 bullet.alive = False
+                if audio:
+                    audio.play("hit_heavy")
         self.enemy_bullets = [bullet for bullet in self.enemy_bullets if bullet.alive]
 
     def resolve_reward(self, player, choice: int | None = None, accept: bool = True) -> None:
